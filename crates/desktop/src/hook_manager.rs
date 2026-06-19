@@ -1,0 +1,144 @@
+use core::eventbus::EventBus;
+use core::logger::Logger;
+use plugin_api::{Event, MouseButton, MouseDown, MouseEvent, MouseMove, MouseUp};
+use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
+use windows_sys::Win32::UI::WindowsAndMessaging::*;
+use windows_sys::Win32::System::LibraryLoader::GetModuleHandleA;
+use std::ffi::c_void;
+
+pub struct HookManager {
+    eventbus: Arc<EventBus>,
+    mouse_hook: Mutex<Option<isize>>,
+}
+
+impl HookManager {
+    pub fn new(eventbus: Arc<EventBus>) -> Self {
+        HookManager {
+            eventbus,
+            mouse_hook: Mutex::new(None),
+        }
+    }
+
+    pub fn register_mouse_hook(&self) -> Result<(), &'static str> {
+        let mut hook = self.mouse_hook.lock().unwrap();
+        if hook.is_some() {
+            return Ok(());
+        }
+
+        let hook_proc: HOOKPROC = Some(mouse_proc_callback);
+
+        let hook_handle = unsafe {
+            let module = GetModuleHandleA(std::ptr::null());
+            SetWindowsHookExA(WH_MOUSE_LL, hook_proc, module, 0)
+        };
+
+        if hook_handle.is_null() {
+            return Err("SetWindowsHookEx failed");
+        }
+
+        *hook = Some(hook_handle as isize);
+        Ok(())
+    }
+
+    pub fn unregister_mouse_hook(&self) {
+        let mut hook = self.mouse_hook.lock().unwrap();
+        if let Some(h) = hook.take() {
+            unsafe {
+                UnhookWindowsHookEx(h as *mut c_void);
+            }
+        }
+    }
+
+    pub fn has_mouse_hook(&self) -> bool {
+        self.mouse_hook.lock().unwrap().is_some()
+    }
+}
+
+unsafe extern "system" fn mouse_proc_callback(ncode: i32, wparam: usize, lparam: isize) -> isize {
+    if ncode < 0 {
+        return CallNextHookEx(std::ptr::null_mut(), ncode, wparam, lparam);
+    }
+
+    let msg_id = wparam as u32;
+
+    if msg_id != WM_MOUSEMOVE && msg_id != WM_LBUTTONDOWN && msg_id != WM_LBUTTONUP
+        && msg_id != WM_RBUTTONDOWN && msg_id != WM_RBUTTONUP
+        && msg_id != WM_MBUTTONDOWN && msg_id != WM_MBUTTONUP
+    {
+        return CallNextHookEx(std::ptr::null_mut(), ncode, wparam, lparam);
+    }
+
+    let info = &*(lparam as *const MSLLHOOKSTRUCT);
+
+    let button = match msg_id {
+        WM_LBUTTONDOWN | WM_LBUTTONUP => MouseButton::Left,
+        WM_RBUTTONDOWN | WM_RBUTTONUP => MouseButton::Right,
+        WM_MBUTTONDOWN | WM_MBUTTONUP => MouseButton::Middle,
+        _ => MouseButton::None,
+    };
+
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+
+    let mouse_event = MouseEvent {
+        button,
+        x: info.pt.x,
+        y: info.pt.y,
+        timestamp,
+    };
+
+    let event_bus_ptr = get_eventbus_ptr();
+    if !event_bus_ptr.is_null() {
+        let eventbus = &*(event_bus_ptr as *const EventBus);
+        let arc_event: Arc<dyn Event> = match msg_id {
+            WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN => {
+                Arc::new(MouseDown(mouse_event))
+            }
+            WM_LBUTTONUP | WM_RBUTTONUP | WM_MBUTTONUP => {
+                Arc::new(MouseUp(mouse_event))
+            }
+            _ => {
+                Arc::new(MouseMove(mouse_event))
+            }
+        };
+
+        let logger_ptr = get_logger_ptr();
+        if !logger_ptr.is_null() {
+            let logger = &*(logger_ptr as *const Logger);
+            let btn_name = match msg_id {
+                WM_LBUTTONDOWN | WM_LBUTTONUP => "Left",
+                WM_RBUTTONDOWN | WM_RBUTTONUP => "Right",
+                WM_MBUTTONDOWN | WM_MBUTTONUP => "Middle",
+                _ => "None",
+            };
+            let action = if msg_id == WM_MOUSEMOVE { "move" } else if msg_id == WM_LBUTTONDOWN || msg_id == WM_RBUTTONDOWN || msg_id == WM_MBUTTONDOWN { "down" } else { "up" };
+            logger.debug("hook", &format!("mouse {} {} at {},{}", action, btn_name, info.pt.x, info.pt.y));
+        }
+
+        eventbus.publish(arc_event);
+    }
+
+    CallNextHookEx(std::ptr::null_mut(), ncode, wparam, lparam)
+}
+
+static mut EVENTBUS_PTR: *mut c_void = std::ptr::null_mut();
+static mut LOGGER_PTR: *mut c_void = std::ptr::null_mut();
+
+pub(crate) fn set_eventbus_ptr(ptr: *mut c_void) {
+    unsafe { EVENTBUS_PTR = ptr; }
+}
+
+pub(crate) fn set_logger_ptr(ptr: *mut c_void) {
+    unsafe { LOGGER_PTR = ptr; }
+}
+
+fn get_eventbus_ptr() -> *mut c_void {
+    unsafe { EVENTBUS_PTR }
+}
+
+fn get_logger_ptr() -> *mut c_void {
+    unsafe { LOGGER_PTR }
+}
