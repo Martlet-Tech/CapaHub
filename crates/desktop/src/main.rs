@@ -73,6 +73,13 @@ fn main() {
 
     core::js_runtime::set_clipboard_read_callback(Box::new(|| clipboard_read_text()));
 
+    core::js_runtime::set_save_file_callback(Box::new(|content: String, default_name: String| {
+        let wide_path = save_file_dialog(&default_name);
+        if let Some(path) = wide_path {
+            let _ = std::fs::write(&path, &content);
+        }
+    }));
+
     unsafe {
         RegisterHotKey(std::ptr::null_mut(), 1, MOD_CONTROL | MOD_SHIFT, 'V' as u32);
         let ok = AddClipboardFormatListener(app.tray.hwnd);
@@ -84,31 +91,18 @@ fn main() {
     }
 
     {
-        let storage = app.storage.clone();
+        let eb = app.eventbus.clone();
         let log = app.logger.clone();
         webview_host::set_bridge_handler(Arc::new(move |json: String| {
             if let Ok(msg) = serde_json::from_str::<serde_json::Value>(&json) {
-                let action = msg["action"].as_str().unwrap_or("");
-                match action {
-                    "clipboard.export" => {
-                        if let Some(history_json) = storage.get("clipboard", "history") {
-                            let text = format_history_for_export(&history_json);
-                            clipboard_write_text(&text);
-                            log.info("clipboard", &format!("exported {} items", count_history(&history_json)));
-                        }
-                    }
-                    "clipboard.clear" => {
-                        storage.set("clipboard", "history", "{\"items\":[],\"nextId\":1}");
-                        log.info("clipboard", "history cleared");
-                    }
-                    "clipboard.list" => {
-                        let count = storage.get("clipboard", "history")
-                            .map(|j| count_history(&j))
-                            .unwrap_or(0);
-                        log.info("clipboard", &format!("history count: {}", count));
-                    }
-                    _ => {}
-                }
+                let action = msg["action"].as_str().unwrap_or("").to_string();
+                let payload = msg["data"].to_string();
+                log.debug("bridge", &format!("action: {}", action));
+                eb.publish(Arc::new(core::event::PluginAction {
+                    plugin: "clipboard".to_string(),
+                    action,
+                    payload,
+                }));
             }
         }));
     }
@@ -245,11 +239,53 @@ extern "system" {
     fn SendInput(cInputs: u32, pInputs: *mut INPUT, cbSize: i32) -> u32;
 }
 
+#[link(name = "comdlg32")]
+extern "system" {
+    fn GetSaveFileNameW(param: *mut crate::plugin_manager_window::OPENFILENAMEW) -> i32;
+}
+
+fn save_file_dialog(default_name: &str) -> Option<String> {
+    let mut buf = [0u16; 1024];
+    for (i, c) in default_name.encode_utf16().enumerate() {
+        if i < buf.len() - 1 { buf[i] = c; }
+    }
+    let filter: Vec<u16> = "XML Files (*.xml)\0*.xml\0All Files (*.*)\0*.*\0\0".encode_utf16().collect();
+    let def_ext: Vec<u16> = "xml\0".encode_utf16().collect();
+    let mut ofn = crate::plugin_manager_window::OPENFILENAMEW {
+        lStructSize: std::mem::size_of::<crate::plugin_manager_window::OPENFILENAMEW>() as u32,
+        hwndOwner: std::ptr::null_mut(),
+        hInstance: std::ptr::null_mut(),
+        lpstrFilter: filter.as_ptr(),
+        lpstrCustomFilter: std::ptr::null_mut(),
+        nMaxCustFilter: 0,
+        nFilterIndex: 1,
+        lpstrFile: buf.as_mut_ptr(),
+        nMaxFile: 1024,
+        lpstrFileTitle: std::ptr::null_mut(),
+        nMaxFileTitle: 0,
+        lpstrInitialDir: std::ptr::null(),
+        lpstrTitle: std::ptr::null(),
+        Flags: 0x0002,
+        nFileOffset: 0,
+        nFileExtension: 0,
+        lpstrDefExt: def_ext.as_ptr(),
+        lCustData: 0,
+        lpfnHook: None,
+        lpTemplateName: std::ptr::null(),
+        pvReserved: std::ptr::null_mut(),
+        dwReserved: 0,
+        FlagsEx: 0,
+    };
+    let result = unsafe { GetSaveFileNameW(&mut ofn) };
+    if result == 0 { return None; }
+    let path_len = buf.iter().position(|&c| c == 0).unwrap_or(0);
+    Some(String::from_utf16_lossy(&buf[..path_len]))
+}
+
+#[allow(dead_code)]
 fn clipboard_write_text(text: &str) {
     unsafe {
-        if OpenClipboard(std::ptr::null_mut()) == 0 {
-            return;
-        }
+        if OpenClipboard(std::ptr::null_mut()) == 0 { return; }
         let _ = EmptyClipboard();
         let wide: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
         let h = GlobalAlloc(0x0002, (wide.len() * 2) as usize);
@@ -263,28 +299,5 @@ fn clipboard_write_text(text: &str) {
             SetClipboardData(13, h);
         }
         CloseClipboard();
-    }
-}
-
-fn format_history_for_export(stored: &str) -> String {
-    if let Ok(val) = serde_json::from_str::<serde_json::Value>(stored) {
-        if let Some(items) = val["items"].as_array() {
-            let mut lines = Vec::new();
-            for item in items {
-                let text = item["text"].as_str().unwrap_or("");
-                let time = item["time"].as_str().unwrap_or("");
-                lines.push(format!("[{}] {}", time, text));
-            }
-            return lines.join("\n---\n");
-        }
-    }
-    "(empty)".to_string()
-}
-
-fn count_history(stored: &str) -> usize {
-    if let Ok(val) = serde_json::from_str::<serde_json::Value>(stored) {
-        val["items"].as_array().map(|a| a.len()).unwrap_or(0)
-    } else {
-        0
     }
 }

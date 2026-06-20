@@ -1,4 +1,4 @@
-use crate::event::{ClipboardItemSelected, Event, PluginActivate};
+use crate::event::{ClipboardItemSelected, Event, PluginActivate, PluginAction};
 use crate::plugin::Plugin;
 use crate::plugin_context::PluginContext;
 use crate::render_intent::*;
@@ -16,6 +16,11 @@ pub fn set_js_intent_callback(cb: Box<dyn Fn(RenderIntent) + Send + 'static>) {
 
 pub static JS_CLIPBOARD_PASTE_CB: Mutex<Option<Box<dyn Fn(String) + Send + 'static>>> = Mutex::new(None);
 pub static JS_CLIPBOARD_READ_CB: Mutex<Option<Box<dyn Fn() -> Option<String> + Send + 'static>>> = Mutex::new(None);
+pub static JS_SAVE_FILE_CB: Mutex<Option<Box<dyn Fn(String, String) + Send + 'static>>> = Mutex::new(None);
+
+pub fn set_save_file_callback(cb: Box<dyn Fn(String, String) + Send + 'static>) {
+    *JS_SAVE_FILE_CB.lock().unwrap() = Some(cb);
+}
 
 pub fn set_clipboard_paste_callback(cb: Box<dyn Fn(String) + Send + 'static>) {
     *JS_CLIPBOARD_PASTE_CB.lock().unwrap() = Some(cb);
@@ -136,6 +141,14 @@ impl JsPlugin {
 
             js_ctx.set("close_intent", Func::new(move || {}))?;
 
+            js_ctx.set("save_file_dialog", Func::new(|content: String, default_name: String| {
+                if let Ok(cb_lock) = JS_SAVE_FILE_CB.lock() {
+                    if let Some(ref cb) = *cb_lock {
+                        cb(content, default_name);
+                    }
+                }
+            }))?;
+
             // ctx.clipboard.paste(text) + readText()
             let clipboard_obj = JsObj::new(ctx.clone())?;
             clipboard_obj.set("paste", Func::new(|text: String| {
@@ -175,7 +188,7 @@ impl JsPlugin {
             for event_type in &[
                 "mouse.down", "mouse.move", "mouse.up",
                 "app.started", "app.shutdown",
-                "plugin.activate",
+                "plugin.activate", "plugin.action",
                 "hotkey.show_clipboard", "clipboard.changed",
                 "clipboard.item_selected",
             ] {
@@ -227,6 +240,8 @@ impl JsPlugin {
             format!("on_clipboard_item_selected({{ id: {} }})", ev.id)
         } else if let Some(ev) = event.as_any().downcast_ref::<PluginActivate>() {
             format!("on_plugin_activate({{ name: \"{}\" }})", ev.name)
+        } else if let Some(ev) = event.as_any().downcast_ref::<PluginAction>() {
+            format!("on_plugin_action({{ plugin: \"{}\", action: \"{}\", payload: \"{}\" }})", ev.plugin, ev.action, ev.payload)
         } else {
             format!("{}()", func_name)
         };

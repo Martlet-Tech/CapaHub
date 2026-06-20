@@ -115,3 +115,13 @@ impl Event for PluginActivate {
     fn event_type(&self) -> &'static str { "plugin.activate" }
     fn as_any(&self) -> &dyn Any { self }
 }
+
+pub struct PluginAction {
+    pub plugin: String,
+    pub action: String,
+    pub payload: String,
+}
+impl Event for PluginAction {
+    fn event_type(&self) -> &'static str { "plugin.action" }
+    fn as_any(&self) -> &dyn Any { self }
+}
