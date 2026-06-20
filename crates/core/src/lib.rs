@@ -16,7 +16,7 @@ pub use event::{AppShutdown, AppStarted, ClipboardChanged, ClipboardItemSelected
 pub use eventbus::{EventBus, SubscriptionId};
 pub use logger::Logger;
 pub use plugin::Plugin;
-pub use plugin_context::{PluginContext, PluginContextFFI};
+pub use plugin_context::PluginContext;
 pub use plugin_manager::{PluginInfo, PluginManager, PluginState};
 pub use render_intent::{DrawCmd, OverlayConfig, OverlayMouseButton, OverlayMouseEvent, RenderIntent, WindowConfig, WindowPosition};
 pub use storage::Storage;

@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+plugin_api = { path = "../plugin_api" }
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 crossbeam-channel = "0.5"

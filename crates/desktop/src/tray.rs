@@ -1,4 +1,3 @@
-use core::event::ClipboardChanged;
 use core::plugin_manager::PluginManager;
 use std::ffi::c_void;
 use std::sync::atomic::Ordering;
@@ -177,8 +176,7 @@ unsafe extern "system" fn tray_wndproc(
         if !eventbus_ptr.is_null() {
             let eb = unsafe { &*(eventbus_ptr as *const core::eventbus::EventBus) };
             if let Some(text) = get_clipboard_text() {
-                use core::event::ClipboardChanged;
-                eb.publish(std::sync::Arc::new(ClipboardChanged { text }));
+                eb.publish(std::sync::Arc::new(core::event::ClipboardChanged { text }));
             }
         }
         return 0;

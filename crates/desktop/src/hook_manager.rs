@@ -1,7 +1,7 @@
 use core::eventbus::EventBus;
 use core::logger::Logger;
 use plugin_api::{Event, MouseButton, MouseDown, MouseEvent, MouseMove, MouseUp};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use windows_sys::Win32::UI::WindowsAndMessaging::*;

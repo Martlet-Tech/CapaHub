@@ -3,7 +3,8 @@ use crate::event::{PluginDisabled, PluginEnabled, PluginLoaded};
 use crate::eventbus::{EventBus, SubscriptionId};
 use crate::logger::Logger;
 use crate::plugin::Plugin;
-use crate::plugin_context::{PluginContext, PluginContextFFI};
+use crate::plugin_context::PluginContext;
+use plugin_api::PluginContextFFI;
 use crate::storage::Storage;
 use libloading::Library;
 use serde::Deserialize;
@@ -395,7 +396,7 @@ impl PluginManager {
             storage: self.storage.clone(),
         };
 
-        let ctx_ffi = PluginContextFFI::from(&ctx);
+        let ctx_ffi = ctx.to_ffi();
 
         let create_fn: libloading::Symbol<
             unsafe extern "C" fn(*const PluginContextFFI) -> *mut std::ffi::c_void,
