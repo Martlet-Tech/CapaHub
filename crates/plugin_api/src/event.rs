@@ -107,3 +107,11 @@ impl Event for ClipboardItemSelected {
     fn event_type(&self) -> &'static str { "clipboard.item_selected" }
     fn as_any(&self) -> &dyn Any { self }
 }
+
+pub struct PluginActivate {
+    pub name: String,
+}
+impl Event for PluginActivate {
+    fn event_type(&self) -> &'static str { "plugin.activate" }
+    fn as_any(&self) -> &dyn Any { self }
+}

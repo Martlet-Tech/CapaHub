@@ -1,4 +1,4 @@
-use crate::event::{ClipboardItemSelected, Event};
+use crate::event::{ClipboardItemSelected, Event, PluginActivate};
 use crate::plugin::Plugin;
 use crate::plugin_context::PluginContext;
 use crate::render_intent::*;
@@ -175,6 +175,7 @@ impl JsPlugin {
             for event_type in &[
                 "mouse.down", "mouse.move", "mouse.up",
                 "app.started", "app.shutdown",
+                "plugin.activate",
                 "hotkey.show_clipboard", "clipboard.changed",
                 "clipboard.item_selected",
             ] {
@@ -224,6 +225,8 @@ impl JsPlugin {
             format!("{}(\"{}\")", func_name, escaped)
         } else if let Some(ev) = event.as_any().downcast_ref::<ClipboardItemSelected>() {
             format!("on_clipboard_item_selected({{ id: {} }})", ev.id)
+        } else if let Some(ev) = event.as_any().downcast_ref::<PluginActivate>() {
+            format!("on_plugin_activate({{ name: \"{}\" }})", ev.name)
         } else {
             format!("{}()", func_name)
         };

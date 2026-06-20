@@ -4,6 +4,7 @@ mod icon_loader;
 mod log_window;
 mod plugin_manager_window;
 mod tray;
+mod webview_host;
 mod window_manager;
 
 use bootstrap::App;
@@ -80,6 +81,36 @@ fn main() {
         } else {
             app.logger.info("core", "Clipboard listener registered");
         }
+    }
+
+    {
+        let storage = app.storage.clone();
+        let log = app.logger.clone();
+        webview_host::set_bridge_handler(Arc::new(move |json: String| {
+            if let Ok(msg) = serde_json::from_str::<serde_json::Value>(&json) {
+                let action = msg["action"].as_str().unwrap_or("");
+                match action {
+                    "clipboard.export" => {
+                        if let Some(history_json) = storage.get("clipboard", "history") {
+                            let text = format_history_for_export(&history_json);
+                            clipboard_write_text(&text);
+                            log.info("clipboard", &format!("exported {} items", count_history(&history_json)));
+                        }
+                    }
+                    "clipboard.clear" => {
+                        storage.set("clipboard", "history", "{\"items\":[],\"nextId\":1}");
+                        log.info("clipboard", "history cleared");
+                    }
+                    "clipboard.list" => {
+                        let count = storage.get("clipboard", "history")
+                            .map(|j| count_history(&j))
+                            .unwrap_or(0);
+                        log.info("clipboard", &format!("history count: {}", count));
+                    }
+                    _ => {}
+                }
+            }
+        }));
     }
 
     let started = Arc::new(AppStarted);
@@ -212,4 +243,48 @@ extern "system" {
 #[link(name = "user32")]
 extern "system" {
     fn SendInput(cInputs: u32, pInputs: *mut INPUT, cbSize: i32) -> u32;
+}
+
+fn clipboard_write_text(text: &str) {
+    unsafe {
+        if OpenClipboard(std::ptr::null_mut()) == 0 {
+            return;
+        }
+        let _ = EmptyClipboard();
+        let wide: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
+        let h = GlobalAlloc(0x0002, (wide.len() * 2) as usize);
+        if !h.is_null() {
+            let dst = GlobalLock(h) as *mut u16;
+            if !dst.is_null() {
+                std::ptr::copy_nonoverlapping(wide.as_ptr(), dst, wide.len());
+                GlobalUnlock(h);
+            }
+            crate::hook_manager::CLIPBOARD_SELF_CHANGE.store(true, std::sync::atomic::Ordering::SeqCst);
+            SetClipboardData(13, h);
+        }
+        CloseClipboard();
+    }
+}
+
+fn format_history_for_export(stored: &str) -> String {
+    if let Ok(val) = serde_json::from_str::<serde_json::Value>(stored) {
+        if let Some(items) = val["items"].as_array() {
+            let mut lines = Vec::new();
+            for item in items {
+                let text = item["text"].as_str().unwrap_or("");
+                let time = item["time"].as_str().unwrap_or("");
+                lines.push(format!("[{}] {}", time, text));
+            }
+            return lines.join("\n---\n");
+        }
+    }
+    "(empty)".to_string()
+}
+
+fn count_history(stored: &str) -> usize {
+    if let Ok(val) = serde_json::from_str::<serde_json::Value>(stored) {
+        val["items"].as_array().map(|a| a.len()).unwrap_or(0)
+    } else {
+        0
+    }
 }

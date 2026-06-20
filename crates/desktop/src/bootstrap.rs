@@ -17,6 +17,7 @@ pub struct App {
     pub eventbus: Arc<EventBus>,
     pub hook_manager: Arc<HookManager>,
     pub plugin_manager: Arc<PluginManager>,
+    pub storage: Arc<core::storage::Storage>,
     pub tray: TrayIcon,
 }
 
@@ -67,13 +68,6 @@ impl App {
         tray.set_log_hwnd(log_window.hwnd);
         tray.set_plugin_manager(plugin_manager.clone());
 
-        App {
-            config,
-            logger,
-            eventbus,
-            hook_manager,
-            plugin_manager,
-            tray,
-        }
+        App { config, logger, eventbus, hook_manager, plugin_manager, storage, tray }
     }
 }

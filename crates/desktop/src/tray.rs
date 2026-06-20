@@ -144,24 +144,27 @@ unsafe extern "system" fn tray_wndproc(
                         let plugins = pm.plugin_list();
                         if idx < plugins.len() {
                             let name = &plugins[idx].name;
+                            let eventbus_ptr = crate::hook_manager::get_eventbus_ptr();
+                            if !eventbus_ptr.is_null() {
+                                let eb = unsafe { &*(eventbus_ptr as *const core::eventbus::EventBus) };
+                                eb.publish(std::sync::Arc::new(core::event::PluginActivate { name: name.clone() }));
+                            }
                             if let Some(dir) = pm.plugin_dir(name) {
                                 let html_path = dir.join("index.html");
                                 if html_path.exists() {
                                     let path_str = html_path.to_string_lossy().to_string();
-                                    let wide_path: Vec<u16> = path_str.encode_utf16().collect();
-                                    let wide_open: Vec<u16> = "open\0".encode_utf16().collect();
-                                    ShellExecuteW(
-                                        std::ptr::null_mut(),
-                                        wide_open.as_ptr(),
-                                        wide_path.as_ptr(),
-                                        std::ptr::null(),
-                                        std::ptr::null(),
-                                        SW_SHOW,
+                                    let title = format!("{} - CapaHub", name);
+                                    let _ = crate::webview_host::create_webview_window(
+                                        &path_str,
+                                        &title,
+                                        800,
+                                        600,
                                     );
                                 }
                             }
                         }
                     }
+                    return 0;
                 }
                 return 0;
             }
