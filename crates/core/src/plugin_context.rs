@@ -1,6 +1,7 @@
 use crate::eventbus::EventBus;
 use crate::logger::Logger;
 use crate::render_intent::{RenderIntent, RenderIntentEvent};
+use crate::storage::Storage;
 use std::ffi::c_void;
 use std::os::windows::ffi::OsStrExt;
 use std::path::PathBuf;
@@ -9,6 +10,7 @@ use std::sync::Arc;
 pub struct PluginContext {
     pub logger: Arc<Logger>,
     pub eventbus: Arc<EventBus>,
+    pub storage: Arc<Storage>,
     pub config_path: PathBuf,
     pub plugin_name: String,
 }
@@ -61,6 +63,7 @@ impl PluginContextFFI {
         PluginContext {
             logger,
             eventbus,
+            storage: Arc::new(crate::storage::Storage::new_in_memory().unwrap()),
             config_path: PathBuf::from(config_path),
             plugin_name,
         }

@@ -70,6 +70,8 @@ fn main() {
         }));
     }
 
+    core::js_runtime::set_clipboard_read_callback(Box::new(|| clipboard_read_text()));
+
     unsafe {
         RegisterHotKey(std::ptr::null_mut(), 1, MOD_CONTROL | MOD_SHIFT, 'V' as u32);
         let ok = AddClipboardFormatListener(app.tray.hwnd);
@@ -167,12 +169,37 @@ fn paste_text(text: &str) {
     }
 }
 
+fn clipboard_read_text() -> Option<String> {
+    unsafe {
+        if OpenClipboard(std::ptr::null_mut()) == 0 {
+            return None;
+        }
+        let h = GetClipboardData(13); // CF_UNICODETEXT
+        if h.is_null() {
+            CloseClipboard();
+            return None;
+        }
+        let ptr = GlobalLock(h) as *const u16;
+        if ptr.is_null() {
+            CloseClipboard();
+            return None;
+        }
+        let mut len = 0;
+        while *ptr.add(len) != 0 { len += 1; }
+        let text = String::from_utf16_lossy(std::slice::from_raw_parts(ptr, len));
+        GlobalUnlock(h);
+        CloseClipboard();
+        Some(text)
+    }
+}
+
 #[link(name = "user32")]
 extern "system" {
     fn OpenClipboard(hwnd: *mut std::ffi::c_void) -> i32;
     fn CloseClipboard() -> i32;
     fn EmptyClipboard() -> i32;
     fn SetClipboardData(uFormat: u32, hMem: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
+    fn GetClipboardData(uFormat: u32) -> *mut std::ffi::c_void;
 }
 
 #[link(name = "kernel32")]

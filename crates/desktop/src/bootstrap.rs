@@ -2,6 +2,7 @@ use core::config::Config;
 use core::eventbus::EventBus;
 use core::logger::Logger;
 use core::plugin_manager::PluginManager;
+use core::storage::Storage;
 use crossbeam_channel::unbounded;
 use std::sync::Arc;
 
@@ -34,10 +35,19 @@ impl App {
 
         let tray = TrayIcon::with_icon(icon_loader::get_tray_icon());
 
+        let storage = Arc::new(
+            Storage::new(&config.data_dir.join("storage.db"))
+                .unwrap_or_else(|e| {
+                    logger.error("core", &format!("Storage init failed: {}", e));
+                    std::process::exit(1);
+                })
+        );
+
         let plugin_manager = Arc::new(PluginManager::new(
             eventbus.clone(),
             logger.clone(),
             Arc::new(config.clone()),
+            storage.clone(),
         ));
 
         if let Err(e) = plugin_manager.scan_and_load() {

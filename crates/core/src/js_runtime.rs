@@ -2,6 +2,7 @@ use crate::event::{ClipboardItemSelected, Event};
 use crate::plugin::Plugin;
 use crate::plugin_context::PluginContext;
 use crate::render_intent::*;
+use crate::storage::Storage;
 use rquickjs::{context::Context, function::Func, object::Object as JsObj, Runtime};
 use serde::Deserialize;
 use std::path::Path;
@@ -14,9 +15,14 @@ pub fn set_js_intent_callback(cb: Box<dyn Fn(RenderIntent) + Send + 'static>) {
 }
 
 pub static JS_CLIPBOARD_PASTE_CB: Mutex<Option<Box<dyn Fn(String) + Send + 'static>>> = Mutex::new(None);
+pub static JS_CLIPBOARD_READ_CB: Mutex<Option<Box<dyn Fn() -> Option<String> + Send + 'static>>> = Mutex::new(None);
 
 pub fn set_clipboard_paste_callback(cb: Box<dyn Fn(String) + Send + 'static>) {
     *JS_CLIPBOARD_PASTE_CB.lock().unwrap() = Some(cb);
+}
+
+pub fn set_clipboard_read_callback(cb: Box<dyn Fn() -> Option<String> + Send + 'static>) {
+    *JS_CLIPBOARD_READ_CB.lock().unwrap() = Some(cb);
 }
 
 #[derive(Deserialize)]
@@ -57,6 +63,7 @@ impl JsPlugin {
         script_path: &Path,
         logger: Arc<crate::logger::Logger>,
         eventbus: Arc<crate::eventbus::EventBus>,
+        storage: Arc<Storage>,
         config_path: std::path::PathBuf,
         plugin_name: String,
     ) -> Result<Self, Box<dyn std::error::Error>> {
@@ -65,6 +72,8 @@ impl JsPlugin {
         let script = std::fs::read_to_string(script_path)?;
 
         let mut subs = Vec::new();
+        let pn_store = plugin_name.clone();
+        let st = storage.clone();
 
         context.with(|ctx| {
             let global = ctx.globals();
@@ -127,7 +136,7 @@ impl JsPlugin {
 
             js_ctx.set("close_intent", Func::new(move || {}))?;
 
-            // ctx.clipboard.paste(text)
+            // ctx.clipboard.paste(text) + readText()
             let clipboard_obj = JsObj::new(ctx.clone())?;
             clipboard_obj.set("paste", Func::new(|text: String| {
                 if let Ok(cb_lock) = JS_CLIPBOARD_PASTE_CB.lock() {
@@ -136,7 +145,29 @@ impl JsPlugin {
                     }
                 }
             }))?;
+            clipboard_obj.set("readText", Func::new(|| -> Option<String> {
+                if let Ok(cb_lock) = JS_CLIPBOARD_READ_CB.lock() {
+                    if let Some(ref cb) = *cb_lock {
+                        return cb();
+                    }
+                }
+                None
+            }))?;
             js_ctx.set("clipboard", clipboard_obj)?;
+
+            // ctx.storage
+            let st2 = st.clone();
+            let pns2 = pn_store.clone();
+            let storage_obj = JsObj::new(ctx.clone())?;
+            storage_obj.set("get", Func::new(move |key: String| -> Option<String> {
+                st2.get(&pns2, &key)
+            }))?;
+            let st3 = st.clone();
+            let pns3 = pn_store.clone();
+            storage_obj.set("set", Func::new(move |key: String, value: String| {
+                st3.set(&pns3, &key, &value);
+            }))?;
+            js_ctx.set("storage", storage_obj)?;
 
             global.set("ctx", js_ctx)?;
             ctx.eval::<(), _>(script.as_str())?;
@@ -163,6 +194,7 @@ impl JsPlugin {
             ctx: PluginContext {
                 logger,
                 eventbus,
+                storage,
                 config_path,
                 plugin_name: plugin_name.clone(),
             },

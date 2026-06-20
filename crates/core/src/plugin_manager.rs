@@ -4,6 +4,7 @@ use crate::eventbus::{EventBus, SubscriptionId};
 use crate::logger::Logger;
 use crate::plugin::Plugin;
 use crate::plugin_context::{PluginContext, PluginContextFFI};
+use crate::storage::Storage;
 use libloading::Library;
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -66,15 +67,17 @@ pub struct PluginManager {
     eventbus: Arc<EventBus>,
     logger: Arc<Logger>,
     config: Arc<Config>,
+    storage: Arc<Storage>,
 }
 
 impl PluginManager {
-    pub fn new(eventbus: Arc<EventBus>, logger: Arc<Logger>, config: Arc<Config>) -> Self {
+    pub fn new(eventbus: Arc<EventBus>, logger: Arc<Logger>, config: Arc<Config>, storage: Arc<Storage>) -> Self {
         PluginManager {
             plugins: Mutex::new(Vec::new()),
             eventbus,
             logger,
             config,
+            storage,
         }
     }
 
@@ -389,6 +392,7 @@ impl PluginManager {
             config_path: plugin_dir.join("config"),
             logger: self.logger.clone(),
             eventbus: self.eventbus.clone(),
+            storage: self.storage.clone(),
         };
 
         let ctx_ffi = PluginContextFFI::from(&ctx);
@@ -435,6 +439,7 @@ impl PluginManager {
             &js_path,
             self.logger.clone(),
             self.eventbus.clone(),
+            self.storage.clone(),
             plugin_dir.join("config"),
             plugin_name.to_string(),
         )?;
