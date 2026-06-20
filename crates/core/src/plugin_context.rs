@@ -1,5 +1,6 @@
 use crate::eventbus::EventBus;
 use crate::logger::Logger;
+use crate::render_intent::{RenderIntent, RenderIntentEvent};
 use std::ffi::c_void;
 use std::os::windows::ffi::OsStrExt;
 use std::path::PathBuf;
@@ -10,6 +11,16 @@ pub struct PluginContext {
     pub eventbus: Arc<EventBus>,
     pub config_path: PathBuf,
     pub plugin_name: String,
+}
+
+impl PluginContext {
+    pub fn commit_intent(&self, intent: RenderIntent) {
+        self.eventbus.publish(Arc::new(RenderIntentEvent(intent)));
+    }
+
+    pub fn close_intent(&self) {
+        // Will be handled via event in the future
+    }
 }
 
 #[repr(C)]
@@ -39,19 +50,14 @@ impl PluginContextFFI {
         let eventbus = Arc::from_raw(self.eventbus as *const EventBus);
         let plugin_name = {
             let mut len = 0;
-            while *self.plugin_name.add(len) != 0 {
-                len += 1;
-            }
+            while *self.plugin_name.add(len) != 0 { len += 1; }
             String::from_utf8_unchecked(std::slice::from_raw_parts(self.plugin_name, len).to_vec())
         };
         let config_path = {
             let mut len = 0;
-            while *self.config_path.add(len) != 0 {
-                len += 1;
-            }
+            while *self.config_path.add(len) != 0 { len += 1; }
             String::from_utf16_lossy(std::slice::from_raw_parts(self.config_path, len))
         };
-
         PluginContext {
             logger,
             eventbus,

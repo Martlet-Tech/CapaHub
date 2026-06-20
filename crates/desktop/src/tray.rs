@@ -1,10 +1,12 @@
+use core::event::ClipboardChanged;
 use core::plugin_manager::PluginManager;
+use std::ffi::c_void;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use windows_sys::Win32::Foundation::*;
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 use windows_sys::Win32::UI::Shell::*;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleA;
-use std::ffi::c_void;
 
 #[link(name = "user32")]
 extern "system" {
@@ -17,6 +19,7 @@ const ID_TRAY_MANAGER: usize = 1002;
 const ID_TRAY_EXIT: usize = 1099;
 const ID_TRAY_PLUGIN_BASE: usize = 2000;
 const GWLP_WNDPROC: i32 = -4;
+const WM_CLIPBOARDUPDATE: u32 = 0x031D;
 
 static mut LOG_HWND: HWND = std::ptr::null_mut();
 static mut PM: Option<Arc<PluginManager>> = None;
@@ -166,7 +169,55 @@ unsafe extern "system" fn tray_wndproc(
         }
     }
 
+    if msg == WM_CLIPBOARDUPDATE {
+        if crate::hook_manager::CLIPBOARD_SELF_CHANGE.swap(false, Ordering::SeqCst) {
+            return 0;
+        }
+        let eventbus_ptr = crate::hook_manager::get_eventbus_ptr();
+        if !eventbus_ptr.is_null() {
+            let eb = unsafe { &*(eventbus_ptr as *const core::eventbus::EventBus) };
+            if let Some(text) = get_clipboard_text() {
+                use core::event::ClipboardChanged;
+                eb.publish(std::sync::Arc::new(ClipboardChanged { text }));
+            }
+        }
+        return 0;
+    }
+
     DefWindowProcW(hwnd, msg, wparam, lparam)
+}
+
+fn get_clipboard_text() -> Option<String> {
+    unsafe {
+        if OpenClipboard(std::ptr::null_mut()) == 0 {
+            return None;
+        }
+        let h = GetClipboardData(13);
+        if h.is_null() {
+            CloseClipboard();
+            return None;
+        }
+        let ptr = GlobalLock(h) as *const u16;
+        if ptr.is_null() {
+            CloseClipboard();
+            return None;
+        }
+        let mut len = 0;
+        while *ptr.add(len) != 0 { len += 1; }
+        let text = String::from_utf16_lossy(std::slice::from_raw_parts(ptr, len));
+        GlobalUnlock(h);
+        CloseClipboard();
+        Some(text)
+    }
+}
+
+#[link(name = "user32")]
+extern "system" {
+    fn OpenClipboard(hwnd: *mut c_void) -> i32;
+    fn CloseClipboard() -> i32;
+    fn GetClipboardData(format: u32) -> *mut c_void;
+    fn GlobalLock(h: *mut c_void) -> *mut c_void;
+    fn GlobalUnlock(h: *mut c_void) -> i32;
 }
 
 unsafe fn show_tray_menu(hwnd: HWND) {

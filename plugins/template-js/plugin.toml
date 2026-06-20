@@ -1,7 +1,7 @@
 [plugin]
-name = "template"
+name = "template-js"
 version = "0.1.0"
-description = "插件模板 — 演示 hook + event + log 完整链路"
+description = "JS plugin template — mouse tracking"
 
 [hooks]
 mouse = true

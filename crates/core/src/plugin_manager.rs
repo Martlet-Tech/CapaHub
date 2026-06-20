@@ -58,7 +58,7 @@ struct LoadedPlugin {
     instance: Arc<Mutex<Box<dyn Plugin>>>,
     state: PluginState,
     subscriptions: Vec<SubscriptionId>,
-    _lib: Library,
+    _lib: Option<Library>,
 }
 
 pub struct PluginManager {
@@ -365,9 +365,6 @@ impl PluginManager {
         let content = fs::read_to_string(&manifest_path)?;
         let manifest: PluginManifest = toml::from_str(&content)?;
 
-        let dll_name = format!("{}.dll", manifest.plugin.name);
-        let dll_path = plugin_dir.join(&dll_name);
-
         let plugin_name = manifest.plugin.name.clone();
 
         {
@@ -377,6 +374,14 @@ impl PluginManager {
             }
         }
 
+        // Check if this is a JS plugin (main.js) or Rust plugin (.dll)
+        let js_path = plugin_dir.join("main.js");
+        if js_path.exists() {
+            return self.load_js_plugin(plugin_dir, &manifest, &plugin_name);
+        }
+
+        let dll_name = format!("{}.dll", manifest.plugin.name);
+        let dll_path = plugin_dir.join(&dll_name);
         let _lib = unsafe { Library::new(&dll_path) }?;
 
         let ctx = PluginContext {
@@ -404,7 +409,7 @@ impl PluginManager {
         let mut plugins = self.plugins.lock().unwrap();
         plugins.push(LoadedPlugin {
             manifest,
-            _lib,
+            _lib: Some(_lib),
             instance: plugin_arc,
             state: PluginState::Loaded,
             subscriptions: Vec::new(),
@@ -413,6 +418,36 @@ impl PluginManager {
         self.logger.info("core", &format!("Plugin loaded: {} v{}", plugin_name, plugins.last().unwrap().manifest.plugin.version));
         self.eventbus.publish(Arc::new(PluginLoaded { name: plugin_name }));
 
+        Ok(())
+    }
+
+    fn load_js_plugin(
+        &self,
+        plugin_dir: &PathBuf,
+        manifest: &PluginManifest,
+        plugin_name: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let js_path = plugin_dir.join("main.js");
+        if !js_path.exists() {
+            return Err("main.js not found".into());
+        }
+        let plugin = crate::js_runtime::JsPlugin::load(
+            &js_path,
+            self.logger.clone(),
+            self.eventbus.clone(),
+            plugin_dir.join("config"),
+            plugin_name.to_string(),
+        )?;
+        let plugin_arc = Arc::new(Mutex::new(Box::new(plugin) as Box<dyn Plugin>));
+        self.plugins.lock().unwrap().push(LoadedPlugin {
+            manifest: manifest.clone(),
+            instance: plugin_arc,
+            state: PluginState::Loaded,
+            subscriptions: Vec::new(),
+            _lib: None,
+        });
+        self.logger.info("core", &format!("JS plugin loaded: {}", plugin_name));
+        self.eventbus.publish(Arc::new(PluginLoaded { name: plugin_name.to_string() }));
         Ok(())
     }
 

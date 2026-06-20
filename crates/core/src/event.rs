@@ -5,6 +5,7 @@ pub trait Event: Send + Sync {
     fn as_any(&self) -> &dyn Any;
 
     fn mouse_event(&self) -> Option<&MouseEvent> { None }
+    fn clipboard_text(&self) -> Option<&str> { None }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -121,6 +122,21 @@ impl Event for PluginEnabled {
     }
 }
 
+pub struct ClipboardChanged {
+    pub text: String,
+}
+impl Event for ClipboardChanged {
+    fn event_type(&self) -> &'static str { "clipboard.changed" }
+    fn as_any(&self) -> &dyn Any { self }
+    fn clipboard_text(&self) -> Option<&str> { Some(&self.text) }
+}
+
+pub struct ShowClipboard;
+impl Event for ShowClipboard {
+    fn event_type(&self) -> &'static str { "hotkey.show_clipboard" }
+    fn as_any(&self) -> &dyn Any { self }
+}
+
 pub struct PluginDisabled {
     pub name: String,
 }
@@ -131,4 +147,12 @@ impl Event for PluginDisabled {
     fn as_any(&self) -> &dyn Any {
         self
     }
+}
+
+pub struct ClipboardItemSelected {
+    pub id: u64,
+}
+impl Event for ClipboardItemSelected {
+    fn event_type(&self) -> &'static str { "clipboard.item_selected" }
+    fn as_any(&self) -> &dyn Any { self }
 }

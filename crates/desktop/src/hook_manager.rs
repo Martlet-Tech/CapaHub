@@ -1,11 +1,14 @@
 use core::eventbus::EventBus;
 use core::logger::Logger;
 use plugin_api::{Event, MouseButton, MouseDown, MouseEvent, MouseMove, MouseUp};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleA;
 use std::ffi::c_void;
+
+pub(crate) static CLIPBOARD_SELF_CHANGE: AtomicBool = AtomicBool::new(false);
 
 pub struct HookManager {
     eventbus: Arc<EventBus>,
@@ -135,7 +138,7 @@ pub(crate) fn set_logger_ptr(ptr: *mut c_void) {
     unsafe { LOGGER_PTR = ptr; }
 }
 
-fn get_eventbus_ptr() -> *mut c_void {
+pub(crate) fn get_eventbus_ptr() -> *mut c_void {
     unsafe { EVENTBUS_PTR }
 }
 
