@@ -20,6 +20,7 @@ struct WindowState {
     hovered_idx: Option<usize>,
     created_at: u64,
     on_hit: Option<Arc<dyn Fn(u64) + Send + Sync + 'static>>,
+    on_delete: Option<Arc<dyn Fn(u64) + Send + Sync + 'static>>,
 }
 
 pub fn spawn_window(config: WindowConfig) {
@@ -27,15 +28,19 @@ pub fn spawn_window(config: WindowConfig) {
     let h = config.height;
     let pos = config.position;
     let draws = config.draws;
+    let selected_index = config.selected_index;
     let on_hit = config.on_hit;
+    let on_delete = config.on_delete;
     std::thread::spawn(move || {
-        run_window(w, h, pos, draws, on_hit);
+        run_window(w, h, pos, draws, selected_index, on_hit, on_delete);
     });
 }
 
 fn run_window(
     width: u32, height: u32, position: WindowPosition, draws: Vec<DrawCmd>,
+    selected_index: usize,
     on_hit: Option<Arc<dyn Fn(u64) + Send + Sync + 'static>>,
+    on_delete: Option<Arc<dyn Fn(u64) + Send + Sync + 'static>>,
 ) {
     let hinstance = unsafe { GetModuleHandleA(std::ptr::null()) };
     let (x, y) = compute_position(width, height, &position);
@@ -74,13 +79,15 @@ fn run_window(
     if hwnd.is_null() { return; }
 
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
+    let idx = selected_index.min(hit_areas.len().saturating_sub(1));
     let state = Box::into_raw(Box::new(WindowState {
         draws,
         hit_areas,
-        selected_idx: 0,
+        selected_idx: idx,
         hovered_idx: None,
         created_at: now,
         on_hit,
+        on_delete,
     }));
 
     unsafe {
@@ -195,6 +202,17 @@ unsafe extern "system" fn popup_wndproc(
                             if let Some(ha) = s.hit_areas.get(idx) {
                                 *PENDING_HIT.lock().unwrap() = Some((cb.clone(), ha.id));
                             }
+                        }
+                    }
+                    DestroyWindow(hwnd);
+                    PostQuitMessage(0);
+                }
+                0x2E if ptr != 0 => {
+                    let s = state_ref(ptr);
+                    let idx = s.hovered_idx.unwrap_or(s.selected_idx);
+                    if let Some(ref cb) = s.on_delete {
+                        if let Some(ha) = s.hit_areas.get(idx) {
+                            cb(ha.id);
                         }
                     }
                     DestroyWindow(hwnd);

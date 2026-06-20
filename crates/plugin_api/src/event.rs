@@ -108,6 +108,14 @@ impl Event for ClipboardItemSelected {
     fn as_any(&self) -> &dyn Any { self }
 }
 
+pub struct ClipboardItemDeleted {
+    pub id: u64,
+}
+impl Event for ClipboardItemDeleted {
+    fn event_type(&self) -> &'static str { "clipboard.item_deleted" }
+    fn as_any(&self) -> &dyn Any { self }
+}
+
 pub struct PluginActivate {
     pub name: String,
 }

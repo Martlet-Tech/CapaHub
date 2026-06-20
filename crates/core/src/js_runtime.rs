@@ -1,4 +1,4 @@
-use crate::event::{ClipboardItemSelected, Event, PluginActivate, PluginAction};
+use crate::event::{ClipboardItemDeleted, ClipboardItemSelected, Event, PluginActivate, PluginAction};
 use crate::plugin::Plugin;
 use crate::plugin_context::PluginContext;
 use crate::render_intent::*;
@@ -37,6 +37,8 @@ struct JsWindowConfig {
     position: String,
     auto_close: bool,
     draws: Vec<JsDrawCmd>,
+    #[serde(default)]
+    selected_index: usize,
 }
 
 #[derive(Deserialize)]
@@ -109,11 +111,13 @@ impl JsPlugin {
                             _ => WindowPosition::NearCursor,
                         };
                         let eb3 = eb.clone();
+                        let eb4 = eb.clone();
                         RenderIntent::Window(WindowConfig {
                             width: jsc.width,
                             height: jsc.height,
                             position: pos,
                             auto_close: jsc.auto_close,
+                            selected_index: jsc.selected_index,
                             draws: jsc.draws.into_iter().map(|d| match d {
                                 JsDrawCmd::Text { x, y, text, font_size, color } =>
                                     DrawCmd::Text(DrawText { x, y, text, font_size, color }),
@@ -126,6 +130,9 @@ impl JsPlugin {
                             }).collect(),
                             on_hit: Some(Arc::new(move |id| {
                                 eb3.publish(Arc::new(ClipboardItemSelected { id }));
+                            })),
+                            on_delete: Some(Arc::new(move |id| {
+                                eb4.publish(Arc::new(ClipboardItemDeleted { id }));
                             })),
                             on_close: None,
                         })
@@ -190,7 +197,7 @@ impl JsPlugin {
                 "app.started", "app.shutdown",
                 "plugin.activate", "plugin.action",
                 "hotkey.show_clipboard", "clipboard.changed",
-                "clipboard.item_selected",
+                "clipboard.item_selected", "clipboard.item_deleted",
             ] {
                 let func_name = js_func_name(event_type);
                 let check = format!("typeof {} === 'function'", func_name);
@@ -236,6 +243,8 @@ impl JsPlugin {
         } else if let Some(text) = event.clipboard_text() {
             let escaped = text.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n").replace('\r', "");
             format!("{}(\"{}\")", func_name, escaped)
+        } else if let Some(ev) = event.as_any().downcast_ref::<ClipboardItemDeleted>() {
+            format!("on_clipboard_item_deleted({{ id: {} }})", ev.id)
         } else if let Some(ev) = event.as_any().downcast_ref::<ClipboardItemSelected>() {
             format!("on_clipboard_item_selected({{ id: {} }})", ev.id)
         } else if let Some(ev) = event.as_any().downcast_ref::<PluginActivate>() {

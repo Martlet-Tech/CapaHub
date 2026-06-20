@@ -12,15 +12,17 @@ pub enum RenderIntent {
 impl Clone for RenderIntent {
     fn clone(&self) -> Self {
         match self {
-            RenderIntent::Window(cfg) => RenderIntent::Window(WindowConfig {
-                width: cfg.width,
-                height: cfg.height,
-                position: cfg.position.clone(),
-                auto_close: cfg.auto_close,
-                draws: cfg.draws.clone(),
-                on_hit: None,
-                on_close: None,
-            }),
+        RenderIntent::Window(cfg) => RenderIntent::Window(WindowConfig {
+            width: cfg.width,
+            height: cfg.height,
+            position: cfg.position.clone(),
+            auto_close: cfg.auto_close,
+            draws: cfg.draws.clone(),
+            selected_index: 0,
+            on_hit: None,
+            on_delete: None,
+            on_close: None,
+        }),
             RenderIntent::Overlay(_) => panic!("Overlay clone not implemented"),
         }
     }
@@ -41,7 +43,9 @@ pub struct WindowConfig {
     pub position: WindowPosition,
     pub auto_close: bool,
     pub draws: Vec<DrawCmd>,
+    pub selected_index: usize,
     pub on_hit: Option<Arc<dyn Fn(u64) + Send + Sync + 'static>>,
+    pub on_delete: Option<Arc<dyn Fn(u64) + Send + Sync + 'static>>,
     pub on_close: Option<Arc<dyn Fn() + Send + Sync + 'static>>,
 }
 
