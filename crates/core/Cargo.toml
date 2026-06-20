@@ -9,3 +9,4 @@ toml = "0.8"
 crossbeam-channel = "0.5"
 chrono = "0.4"
 libloading = "0.8"
+zip = { version = "2", default-features = false, features = ["deflate"] }

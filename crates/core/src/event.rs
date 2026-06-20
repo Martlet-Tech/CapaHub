@@ -107,3 +107,28 @@ impl Event for PluginLoaded {
         self
     }
 }
+
+pub struct PluginEnabled {
+    pub name: String,
+    pub needs_hook: bool,
+}
+impl Event for PluginEnabled {
+    fn event_type(&self) -> &'static str {
+        "plugin.enabled"
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+pub struct PluginDisabled {
+    pub name: String,
+}
+impl Event for PluginDisabled {
+    fn event_type(&self) -> &'static str {
+        "plugin.disabled"
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}

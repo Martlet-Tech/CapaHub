@@ -13,6 +13,16 @@ impl Plugin for TemplatePlugin {
         Ok(())
     }
 
+    fn on_enable(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        self.ctx.logger.info("template", "插件已启用");
+        Ok(())
+    }
+
+    fn on_disable(&mut self) {
+        self.tracking = false;
+        self.ctx.logger.info("template", "插件已禁用");
+    }
+
     fn on_unload(&mut self) {
         self.ctx.logger.info("template", "插件已卸载");
     }
