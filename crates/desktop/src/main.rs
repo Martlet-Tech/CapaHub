@@ -1,7 +1,10 @@
+mod act;
 mod bootstrap;
+mod clipboard;
 mod hook_manager;
 mod icon_loader;
 mod log_window;
+mod overlay;
 mod plugin_manager_window;
 mod tray;
 mod webview_host;
@@ -10,14 +13,16 @@ mod window_manager;
 use bootstrap::App;
 use std::sync::Arc;
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::*;
-use plugin_api::{AppStarted, Event, PluginDisabled, PluginEnabled, ShowClipboard};
-use crate::hook_manager::{get_eventbus_ptr, set_eventbus_ptr, set_logger_ptr};
-
-const MOD_CONTROL: u32 = 0x0002;
-const MOD_SHIFT: u32 = 0x0004;
+use plugin_api::{AppStarted, Event, PluginDisabled, PluginEnabled};
+use crate::hook_manager::{set_eventbus_ptr, set_logger_ptr};
 
 fn main() {
+    // DPI awareness — ensure overlay coordinates match raw mouse input
+    unsafe { windows_sys::Win32::UI::HiDpi::SetProcessDpiAwareness(windows_sys::Win32::UI::HiDpi::PROCESS_PER_MONITOR_DPI_AWARE); }
+
+    // false=不写文件(看是否卡死)  true=写文件(正常)
+    core::logger::set_file_logging(true);
+
     let app = App::bootstrap();
 
     {
@@ -51,7 +56,7 @@ fn main() {
 
     {
         let log2 = app.logger.clone();
-        core::js_runtime::set_js_intent_callback(Box::new(move |intent| {
+        core::capability::register_intent(std::sync::Arc::new(move |intent| {
             use core::render_intent::RenderIntent;
             match intent {
                 RenderIntent::Window(cfg) => {
@@ -65,47 +70,31 @@ fn main() {
 
     {
         let log3 = app.logger.clone();
-        core::js_runtime::set_clipboard_paste_callback(Box::new(move |text: String| {
+        core::capability::register_paste(std::sync::Arc::new(move |text: String| {
             log3.debug("core", &format!("paste: {} chars", text.len()));
-            paste_text(&text);
+            crate::clipboard::paste(&text);
         }));
     }
 
-    core::js_runtime::set_clipboard_read_callback(Box::new(|| clipboard_read_text()));
+    core::capability::register_read_text(std::sync::Arc::new(|| crate::clipboard::read_text()));
 
-    core::js_runtime::set_save_file_callback(Box::new(|content: String, default_name: String| {
+    core::capability::register_save_file(std::sync::Arc::new(|content: String, default_name: String| {
         let wide_path = save_file_dialog(&default_name);
         if let Some(path) = wide_path {
             let _ = std::fs::write(&path, &content);
         }
     }));
 
-    unsafe {
-        RegisterHotKey(std::ptr::null_mut(), 1, MOD_CONTROL | MOD_SHIFT, 'V' as u32);
-        let ok = AddClipboardFormatListener(app.tray.hwnd);
-        if ok == 0 {
-            app.logger.warn("core", "AddClipboardFormatListener failed");
-        } else {
-            app.logger.info("core", "Clipboard listener registered");
-        }
-    }
+    core::capability::register_send_keys(std::sync::Arc::new(|keys: String| {
+        crate::act::input::send_keys(&keys);
+    }));
 
-    {
-        let eb = app.eventbus.clone();
-        let log = app.logger.clone();
-        webview_host::set_bridge_handler(Arc::new(move |json: String| {
-            if let Ok(msg) = serde_json::from_str::<serde_json::Value>(&json) {
-                let action = msg["action"].as_str().unwrap_or("").to_string();
-                let payload = msg["data"].to_string();
-                log.debug("bridge", &format!("action: {}", action));
-                eb.publish(Arc::new(core::event::PluginAction {
-                    plugin: "clipboard".to_string(),
-                    action,
-                    payload,
-                }));
-            }
-        }));
-    }
+    crate::overlay::init();
+    core::capability::register_overlay(std::sync::Arc::new(|json: String| {
+        crate::overlay::handle_cmd(&json)
+    }));
+
+    crate::clipboard::init(app.tray.hwnd as isize, &app.logger);
 
     let started = Arc::new(AppStarted);
     app.eventbus.publish(started);
@@ -127,11 +116,7 @@ fn run_message_loop() {
             0 | -1 => break,
             _ => {
                 if msg.message == WM_HOTKEY && msg.wParam == 1 {
-                    let ptr = get_eventbus_ptr();
-                    if !ptr.is_null() {
-                        let eb = unsafe { &*(ptr as *const core::eventbus::EventBus) };
-                        eb.publish(Arc::new(ShowClipboard));
-                    }
+                    crate::clipboard::on_hotkey();
                     continue;
                 }
                 unsafe {
@@ -141,102 +126,6 @@ fn run_message_loop() {
             }
         }
     }
-}
-
-#[link(name = "user32")]
-extern "system" {
-    fn RegisterHotKey(hwnd: *mut std::ffi::c_void, id: i32, fsModifiers: u32, vk: u32) -> i32;
-    fn AddClipboardFormatListener(hwnd: *mut std::ffi::c_void) -> i32;
-}
-
-fn paste_text(text: &str) {
-    unsafe {
-        if OpenClipboard(std::ptr::null_mut()) == 0 {
-            return;
-        }
-        let _ = EmptyClipboard();
-
-        // Set clipboard to our text as CF_UNICODETEXT (13)
-        let wide: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
-        let h = GlobalAlloc(0x0002, (wide.len() * 2) as usize); // GMEM_MOVEABLE
-        if !h.is_null() {
-            let dst = GlobalLock(h) as *mut u16;
-            if !dst.is_null() {
-                std::ptr::copy_nonoverlapping(wide.as_ptr(), dst, wide.len());
-                GlobalUnlock(h);
-            }
-            crate::hook_manager::CLIPBOARD_SELF_CHANGE.store(true, std::sync::atomic::Ordering::SeqCst);
-            SetClipboardData(13, h); // CF_UNICODETEXT = 13
-        }
-
-        CloseClipboard();
-
-        // Simulate Ctrl+V
-        let mut inputs = [
-            INPUT {
-                r#type: INPUT_KEYBOARD,
-                Anonymous: INPUT_0 { ki: KEYBDINPUT { wVk: VK_CONTROL as u16, wScan: 0, dwFlags: 0, time: 0, dwExtraInfo: 0 } },
-            },
-            INPUT {
-                r#type: INPUT_KEYBOARD,
-                Anonymous: INPUT_0 { ki: KEYBDINPUT { wVk: 'V' as u16, wScan: 0, dwFlags: 0, time: 0, dwExtraInfo: 0 } },
-            },
-            INPUT {
-                r#type: INPUT_KEYBOARD,
-                Anonymous: INPUT_0 { ki: KEYBDINPUT { wVk: 'V' as u16, wScan: 0, dwFlags: KEYEVENTF_KEYUP, time: 0, dwExtraInfo: 0 } },
-            },
-            INPUT {
-                r#type: INPUT_KEYBOARD,
-                Anonymous: INPUT_0 { ki: KEYBDINPUT { wVk: VK_CONTROL as u16, wScan: 0, dwFlags: KEYEVENTF_KEYUP, time: 0, dwExtraInfo: 0 } },
-            },
-        ];
-        SendInput(4, inputs.as_mut_ptr(), std::mem::size_of::<INPUT>() as i32);
-    }
-}
-
-fn clipboard_read_text() -> Option<String> {
-    unsafe {
-        if OpenClipboard(std::ptr::null_mut()) == 0 {
-            return None;
-        }
-        let h = GetClipboardData(13); // CF_UNICODETEXT
-        if h.is_null() {
-            CloseClipboard();
-            return None;
-        }
-        let ptr = GlobalLock(h) as *const u16;
-        if ptr.is_null() {
-            CloseClipboard();
-            return None;
-        }
-        let mut len = 0;
-        while *ptr.add(len) != 0 { len += 1; }
-        let text = String::from_utf16_lossy(std::slice::from_raw_parts(ptr, len));
-        GlobalUnlock(h);
-        CloseClipboard();
-        Some(text)
-    }
-}
-
-#[link(name = "user32")]
-extern "system" {
-    fn OpenClipboard(hwnd: *mut std::ffi::c_void) -> i32;
-    fn CloseClipboard() -> i32;
-    fn EmptyClipboard() -> i32;
-    fn SetClipboardData(uFormat: u32, hMem: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
-    fn GetClipboardData(uFormat: u32) -> *mut std::ffi::c_void;
-}
-
-#[link(name = "kernel32")]
-extern "system" {
-    fn GlobalAlloc(uFlags: u32, dwBytes: usize) -> *mut std::ffi::c_void;
-    fn GlobalLock(hMem: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
-    fn GlobalUnlock(hMem: *mut std::ffi::c_void) -> i32;
-}
-
-#[link(name = "user32")]
-extern "system" {
-    fn SendInput(cInputs: u32, pInputs: *mut INPUT, cbSize: i32) -> u32;
 }
 
 #[link(name = "comdlg32")]
@@ -280,24 +169,4 @@ fn save_file_dialog(default_name: &str) -> Option<String> {
     if result == 0 { return None; }
     let path_len = buf.iter().position(|&c| c == 0).unwrap_or(0);
     Some(String::from_utf16_lossy(&buf[..path_len]))
-}
-
-#[allow(dead_code)]
-fn clipboard_write_text(text: &str) {
-    unsafe {
-        if OpenClipboard(std::ptr::null_mut()) == 0 { return; }
-        let _ = EmptyClipboard();
-        let wide: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
-        let h = GlobalAlloc(0x0002, (wide.len() * 2) as usize);
-        if !h.is_null() {
-            let dst = GlobalLock(h) as *mut u16;
-            if !dst.is_null() {
-                std::ptr::copy_nonoverlapping(wide.as_ptr(), dst, wide.len());
-                GlobalUnlock(h);
-            }
-            crate::hook_manager::CLIPBOARD_SELF_CHANGE.store(true, std::sync::atomic::Ordering::SeqCst);
-            SetClipboardData(13, h);
-        }
-        CloseClipboard();
-    }
 }

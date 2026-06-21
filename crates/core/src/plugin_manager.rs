@@ -11,6 +11,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone, Deserialize)]
@@ -18,6 +19,8 @@ struct PluginManifest {
     plugin: PluginMeta,
     hooks: HooksDecl,
     events: EventDecl,
+    #[serde(default)]
+    capabilities: CapabilitiesDecl,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -31,6 +34,16 @@ struct PluginMeta {
 struct HooksDecl {
     mouse: Option<bool>,
     keyboard: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+struct CapabilitiesDecl {
+    #[serde(default)]
+    clipboard: bool,
+    #[serde(default)]
+    input: bool,
+    #[serde(default)]
+    overlay: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -436,6 +449,11 @@ impl PluginManager {
         if !js_path.exists() {
             return Err("main.js not found".into());
         }
+        let caps = crate::js_runtime::JsCapabilities {
+            clipboard: manifest.capabilities.clipboard,
+            input: manifest.capabilities.input,
+            overlay: manifest.capabilities.overlay,
+        };
         let plugin = crate::js_runtime::JsPlugin::load(
             &js_path,
             self.logger.clone(),
@@ -443,6 +461,8 @@ impl PluginManager {
             self.storage.clone(),
             plugin_dir.join("config"),
             plugin_name.to_string(),
+            &manifest.events.subscribes,
+            caps,
         )?;
         let plugin_arc = Arc::new(Mutex::new(Box::new(plugin) as Box<dyn Plugin>));
         self.plugins.lock().unwrap().push(LoadedPlugin {
@@ -465,12 +485,21 @@ impl PluginManager {
         let mut ids = Vec::new();
         let log = self.logger.clone();
         let plugin_name = manifest.plugin.name.clone();
+        let count = Arc::new(AtomicU64::new(0));
         for event_type in &manifest.events.subscribes {
             let pa = instance.clone();
             let l = log.clone();
             let et = event_type.clone();
             let pn = plugin_name.clone();
+            let c = count.clone();
             let id = self.eventbus.subscribe(&et, Arc::new(move |event| {
+                if event.event_type() == "mouse.move" {
+                    let n = c.fetch_add(1, Ordering::Relaxed);
+                    if n % 100 != 0 {
+                        if let Ok(mut p) = pa.lock() { p.on_event(event); }
+                        return;
+                    }
+                }
                 l.debug("evbus", &format!("dispatch {} to {}", event.event_type(), pn));
                 if let Ok(mut p) = pa.lock() {
                     p.on_event(event);

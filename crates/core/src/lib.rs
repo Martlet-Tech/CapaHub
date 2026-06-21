@@ -1,4 +1,5 @@
 pub mod app_context;
+pub mod capability;
 pub mod config;
 pub mod event;
 pub mod eventbus;
@@ -12,9 +13,9 @@ pub mod storage;
 
 pub use app_context::AppContext;
 pub use config::Config;
-pub use event::{AppShutdown, AppStarted, ClipboardChanged, ClipboardItemDeleted, ClipboardItemSelected, Event, MouseButton, MouseDown, MouseEvent, MouseMove, MouseUp, PluginActivate, PluginAction, PluginDisabled, PluginEnabled, PluginLoaded, ShowClipboard};
+pub use event::{AppShutdown, AppStarted, DynamicEvent, Event, MouseButton, MouseDown, MouseEvent, MouseMove, MouseUp, PluginActivate, PluginAction, PluginDisabled, PluginEnabled, PluginLoaded};
 pub use eventbus::{EventBus, SubscriptionId};
-pub use logger::Logger;
+pub use logger::{Logger, set_file_logging};
 pub use plugin::Plugin;
 pub use plugin_context::PluginContext;
 pub use plugin_manager::{PluginInfo, PluginManager, PluginState};

@@ -1,14 +1,11 @@
 use core::eventbus::EventBus;
 use core::logger::Logger;
 use plugin_api::{Event, MouseButton, MouseDown, MouseEvent, MouseMove, MouseUp};
-use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleA;
 use std::ffi::c_void;
-
-pub(crate) static CLIPBOARD_SELF_CHANGE: AtomicBool = AtomicBool::new(false);
 
 pub struct HookManager {
     eventbus: Arc<EventBus>,
@@ -111,14 +108,26 @@ unsafe extern "system" fn mouse_proc_callback(ncode: i32, wparam: usize, lparam:
         let logger_ptr = get_logger_ptr();
         if !logger_ptr.is_null() {
             let logger = &*(logger_ptr as *const Logger);
-            let btn_name = match msg_id {
-                WM_LBUTTONDOWN | WM_LBUTTONUP => "Left",
-                WM_RBUTTONDOWN | WM_RBUTTONUP => "Right",
-                WM_MBUTTONDOWN | WM_MBUTTONUP => "Middle",
-                _ => "None",
-            };
-            let action = if msg_id == WM_MOUSEMOVE { "move" } else if msg_id == WM_LBUTTONDOWN || msg_id == WM_RBUTTONDOWN || msg_id == WM_MBUTTONDOWN { "down" } else { "up" };
-            logger.debug("hook", &format!("mouse {} {} at {},{}", action, btn_name, info.pt.x, info.pt.y));
+            if msg_id == WM_MOUSEMOVE {
+                if MOVE_COUNT == 0 {
+                    MOVE_START_X = info.pt.x;
+                    MOVE_START_Y = info.pt.y;
+                }
+                MOVE_COUNT += 1;
+                if MOVE_COUNT >= 100 {
+                    logger.debug("hook", &format!("mouse move x{} ({}→{})", MOVE_COUNT, format_pos(MOVE_START_X, MOVE_START_Y), format_pos(info.pt.x, info.pt.y)));
+                    MOVE_COUNT = 0;
+                }
+            } else {
+                let btn_name = match msg_id {
+                    WM_LBUTTONDOWN | WM_LBUTTONUP => "Left",
+                    WM_RBUTTONDOWN | WM_RBUTTONUP => "Right",
+                    WM_MBUTTONDOWN | WM_MBUTTONUP => "Middle",
+                    _ => "None",
+                };
+                let action = if msg_id == WM_LBUTTONDOWN || msg_id == WM_RBUTTONDOWN || msg_id == WM_MBUTTONDOWN { "down" } else { "up" };
+                logger.debug("hook", &format!("mouse {} {} at {}", action, btn_name, format_pos(info.pt.x, info.pt.y)));
+            }
         }
 
         eventbus.publish(arc_event);
@@ -129,6 +138,9 @@ unsafe extern "system" fn mouse_proc_callback(ncode: i32, wparam: usize, lparam:
 
 static mut EVENTBUS_PTR: *mut c_void = std::ptr::null_mut();
 static mut LOGGER_PTR: *mut c_void = std::ptr::null_mut();
+static mut MOVE_COUNT: u32 = 0;
+static mut MOVE_START_X: i32 = 0;
+static mut MOVE_START_Y: i32 = 0;
 
 pub(crate) fn set_eventbus_ptr(ptr: *mut c_void) {
     unsafe { EVENTBUS_PTR = ptr; }
@@ -144,4 +156,8 @@ pub(crate) fn get_eventbus_ptr() -> *mut c_void {
 
 fn get_logger_ptr() -> *mut c_void {
     unsafe { LOGGER_PTR }
+}
+
+fn format_pos(x: i32, y: i32) -> String {
+    format!("{},{}", x, y)
 }

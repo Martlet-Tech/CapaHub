@@ -3,8 +3,15 @@ use crossbeam_channel::Sender;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::collections::VecDeque;
+
+static FILE_ENABLED: AtomicBool = AtomicBool::new(true);
+
+pub fn set_file_logging(enabled: bool) {
+    FILE_ENABLED.store(enabled, Ordering::SeqCst);
+}
 
 #[derive(Debug, Clone)]
 pub enum LogLevel {
@@ -78,7 +85,7 @@ impl Logger {
             ring.push_back(entry.clone());
         }
 
-        {
+        if FILE_ENABLED.load(Ordering::SeqCst) {
             let mut file = self.file.lock().unwrap();
             let _ = writeln!(
                 file,

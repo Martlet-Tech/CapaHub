@@ -6,13 +6,6 @@ use windows_sys::Win32::Graphics::Gdi::GetStockObject;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleA;
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
-type BridgeHandler = Arc<dyn Fn(String) + Send + Sync + 'static>;
-static BRIDGE_HANDLER: Mutex<Option<BridgeHandler>> = Mutex::new(None);
-
-pub fn set_bridge_handler(handler: BridgeHandler) {
-    *BRIDGE_HANDLER.lock().unwrap() = Some(handler);
-}
-
 fn pump_until(flag: &AtomicBool, timeout_ms: u64) -> bool {
     let start = std::time::Instant::now();
     while !flag.load(Ordering::SeqCst) {
@@ -32,14 +25,17 @@ fn pump_until(flag: &AtomicBool, timeout_ms: u64) -> bool {
     true
 }
 
+/// Create a WebView2 window and route bridge messages to `plugin_name`.
 pub fn create_webview_window(
     html_path: &str,
     window_title: &str,
     width: i32,
     height: i32,
+    plugin_name: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let html_path = html_path.to_string();
     let window_title = window_title.to_string();
+    let plugin_name = plugin_name.to_string();
 
     std::thread::spawn(move || {
         unsafe {
@@ -164,7 +160,27 @@ pub fn create_webview_window(
             let _ = settings.put_are_dev_tools_enabled(true);
         }
 
-        set_message_handler(&webview);
+        // Route bridge messages to the owning plugin.
+        let pn = plugin_name.clone();
+        let _ = webview.add_web_message_received(
+            move |_sender: WebView, args: WebMessageReceivedEventArgs| -> webview2::Result<()> {
+                let json = args.try_get_web_message_as_string().unwrap_or_default();
+                let ptr = crate::hook_manager::get_eventbus_ptr();
+                if !ptr.is_null() {
+                    if let Ok(msg) = serde_json::from_str::<serde_json::Value>(&json) {
+                        let action = msg["action"].as_str().unwrap_or("").to_string();
+                        let payload = msg["data"].to_string();
+                        let eb = unsafe { &*(ptr as *const core::eventbus::EventBus) };
+                        eb.publish(std::sync::Arc::new(core::event::PluginAction {
+                            plugin: pn.clone(),
+                            action,
+                            payload,
+                        }));
+                    }
+                }
+                Ok(())
+            },
+        );
 
         let bounds = winapi::shared::windef::RECT { left: 0, top: 0, right: width, bottom: height };
         let _ = controller.put_bounds(bounds);
@@ -199,19 +215,6 @@ pub fn create_webview_window(
     });
 
     Ok(())
-}
-
-fn set_message_handler(webview: &WebView) {
-    let wv = webview.clone();
-    let _ = wv.add_web_message_received(
-        move |_sender: WebView, args: WebMessageReceivedEventArgs| -> webview2::Result<()> {
-            let json = args.try_get_web_message_as_string().unwrap_or_default();
-            if let Some(handler) = BRIDGE_HANDLER.lock().unwrap().as_ref() {
-                handler(json);
-            }
-            Ok(())
-        },
-    );
 }
 
 unsafe extern "system" fn wndproc(

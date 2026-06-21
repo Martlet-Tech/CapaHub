@@ -1,4 +1,5 @@
-use crate::event::{ClipboardItemDeleted, ClipboardItemSelected, Event, PluginActivate, PluginAction};
+use crate::capability;
+use crate::event::Event;
 use crate::plugin::Plugin;
 use crate::plugin_context::PluginContext;
 use crate::render_intent::*;
@@ -6,29 +7,7 @@ use crate::storage::Storage;
 use rquickjs::{context::Context, function::Func, object::Object as JsObj, Runtime};
 use serde::Deserialize;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
-
-pub static JS_INTENT_CB: Mutex<Option<Box<dyn Fn(RenderIntent) + Send + 'static>>> = Mutex::new(None);
-
-pub fn set_js_intent_callback(cb: Box<dyn Fn(RenderIntent) + Send + 'static>) {
-    *JS_INTENT_CB.lock().unwrap() = Some(cb);
-}
-
-pub static JS_CLIPBOARD_PASTE_CB: Mutex<Option<Box<dyn Fn(String) + Send + 'static>>> = Mutex::new(None);
-pub static JS_CLIPBOARD_READ_CB: Mutex<Option<Box<dyn Fn() -> Option<String> + Send + 'static>>> = Mutex::new(None);
-pub static JS_SAVE_FILE_CB: Mutex<Option<Box<dyn Fn(String, String) + Send + 'static>>> = Mutex::new(None);
-
-pub fn set_save_file_callback(cb: Box<dyn Fn(String, String) + Send + 'static>) {
-    *JS_SAVE_FILE_CB.lock().unwrap() = Some(cb);
-}
-
-pub fn set_clipboard_paste_callback(cb: Box<dyn Fn(String) + Send + 'static>) {
-    *JS_CLIPBOARD_PASTE_CB.lock().unwrap() = Some(cb);
-}
-
-pub fn set_clipboard_read_callback(cb: Box<dyn Fn() -> Option<String> + Send + 'static>) {
-    *JS_CLIPBOARD_READ_CB.lock().unwrap() = Some(cb);
-}
+use std::sync::Arc;
 
 #[derive(Deserialize)]
 struct JsWindowConfig {
@@ -65,6 +44,13 @@ fn js_func_name(event_type: &str) -> String {
     format!("on_{}", event_type.replace('.', "_"))
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct JsCapabilities {
+    pub clipboard: bool,
+    pub input: bool,
+    pub overlay: bool,
+}
+
 impl JsPlugin {
     pub fn load(
         script_path: &Path,
@@ -73,6 +59,8 @@ impl JsPlugin {
         storage: Arc<Storage>,
         config_path: std::path::PathBuf,
         plugin_name: String,
+        subscribes: &[String],
+        caps: JsCapabilities,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let rt = Runtime::new()?;
         let context = Context::full(&rt)?;
@@ -85,6 +73,7 @@ impl JsPlugin {
         context.with(|ctx| {
             let global = ctx.globals();
             let js_ctx = JsObj::new(ctx.clone())?;
+
             let pn = plugin_name.clone();
             let l = logger.clone();
             js_ctx.set("log", Func::new(move |level: String, msg: String| {
@@ -129,53 +118,72 @@ impl JsPlugin {
                                     DrawCmd::Image(DrawImage { x, y, width, height, data }),
                             }).collect(),
                             on_hit: Some(Arc::new(move |id| {
-                                eb3.publish(Arc::new(ClipboardItemSelected { id }));
+                                eb3.publish(Arc::new(crate::event::DynamicEvent {
+                                    event_type: "clipboard.item_selected",
+                                    repr: format!("{{ id: {} }}", id),
+                                }));
                             })),
                             on_delete: Some(Arc::new(move |id| {
-                                eb4.publish(Arc::new(ClipboardItemDeleted { id }));
+                                eb4.publish(Arc::new(crate::event::DynamicEvent {
+                                    event_type: "clipboard.item_deleted",
+                                    repr: format!("{{ id: {} }}", id),
+                                }));
                             })),
                             on_close: None,
                         })
                     }
                     _ => return,
                 };
-                if let Ok(cb_lock) = JS_INTENT_CB.lock() {
-                    if let Some(ref cb) = *cb_lock {
-                        cb(intent);
-                    }
+                if let Some(provider) = capability::intent_provider() {
+                    provider(intent);
                 }
             }))?;
 
             js_ctx.set("close_intent", Func::new(move || {}))?;
 
             js_ctx.set("save_file_dialog", Func::new(|content: String, default_name: String| {
-                if let Ok(cb_lock) = JS_SAVE_FILE_CB.lock() {
-                    if let Some(ref cb) = *cb_lock {
-                        cb(content, default_name);
-                    }
+                if let Some(provider) = capability::save_file_provider() {
+                    provider(content, default_name);
                 }
             }))?;
 
-            // ctx.clipboard.paste(text) + readText()
-            let clipboard_obj = JsObj::new(ctx.clone())?;
-            clipboard_obj.set("paste", Func::new(|text: String| {
-                if let Ok(cb_lock) = JS_CLIPBOARD_PASTE_CB.lock() {
-                    if let Some(ref cb) = *cb_lock {
-                        cb(text);
+            if caps.clipboard {
+                let clipboard_obj = JsObj::new(ctx.clone())?;
+                clipboard_obj.set("paste", Func::new(|text: String| {
+                    if let Some(provider) = capability::paste_provider() {
+                        provider(text);
                     }
-                }
-            }))?;
-            clipboard_obj.set("readText", Func::new(|| -> Option<String> {
-                if let Ok(cb_lock) = JS_CLIPBOARD_READ_CB.lock() {
-                    if let Some(ref cb) = *cb_lock {
-                        return cb();
-                    }
-                }
-                None
-            }))?;
-            js_ctx.set("clipboard", clipboard_obj)?;
+                }))?;
+                clipboard_obj.set("readText", Func::new(|| -> Option<String> {
+                    capability::read_text_provider().and_then(|p| p())
+                }))?;
+                js_ctx.set("clipboard", clipboard_obj)?;
+            }
 
-            // ctx.storage
+            if caps.input {
+                let input_obj = JsObj::new(ctx.clone())?;
+                input_obj.set("sendKeys", Func::new(|keys: String| {
+                    if let Some(provider) = capability::send_keys_provider() {
+                        provider(keys);
+                    }
+                }))?;
+                js_ctx.set("input", input_obj)?;
+            }
+
+            // ── ctx.overlay (only if capability declared) ─────
+            if caps.overlay {
+                let overlay_obj = JsObj::new(ctx.clone())?;
+                overlay_obj.set("cmd", Func::new(|json: String| -> String {
+                    capability::overlay_provider()
+                        .and_then(|p| match p(json) {
+                            Ok(handle) => Some(handle.to_string()),
+                            Err(e) => Some(format!("error:{}", e)),
+                        })
+                        .unwrap_or_else(|| "error:no provider".to_string())
+                }))?;
+                js_ctx.set("overlay", overlay_obj)?;
+            }
+
             let st2 = st.clone();
             let pns2 = pn_store.clone();
             let storage_obj = JsObj::new(ctx.clone())?;
@@ -192,13 +200,7 @@ impl JsPlugin {
             global.set("ctx", js_ctx)?;
             ctx.eval::<(), _>(script.as_str())?;
 
-            for event_type in &[
-                "mouse.down", "mouse.move", "mouse.up",
-                "app.started", "app.shutdown",
-                "plugin.activate", "plugin.action",
-                "hotkey.show_clipboard", "clipboard.changed",
-                "clipboard.item_selected", "clipboard.item_deleted",
-            ] {
+            for event_type in subscribes {
                 let func_name = js_func_name(event_type);
                 let check = format!("typeof {} === 'function'", func_name);
                 let exists: bool = ctx.eval(check.as_str())?;
@@ -222,48 +224,25 @@ impl JsPlugin {
             subs,
         })
     }
-
-    pub fn handle_event(&self, event: &dyn Event) {
-        let et = event.event_type();
-        if !self.subs.iter().any(|s| s == et) {
-            return;
-        }
-        let func_name = js_func_name(et);
-        let js = if let Some(me) = event.mouse_event() {
-            let btn = match me.button {
-                crate::event::MouseButton::Left => "Left",
-                crate::event::MouseButton::Right => "Right",
-                crate::event::MouseButton::Middle => "Middle",
-                _ => "None",
-            };
-            format!(
-                "{}({{ button: \"{}\", x: {}, y: {}, timestamp: {} }})",
-                func_name, btn, me.x, me.y, me.timestamp
-            )
-        } else if let Some(text) = event.clipboard_text() {
-            let escaped = text.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n").replace('\r', "");
-            format!("{}(\"{}\")", func_name, escaped)
-        } else if let Some(ev) = event.as_any().downcast_ref::<ClipboardItemDeleted>() {
-            format!("on_clipboard_item_deleted({{ id: {} }})", ev.id)
-        } else if let Some(ev) = event.as_any().downcast_ref::<ClipboardItemSelected>() {
-            format!("on_clipboard_item_selected({{ id: {} }})", ev.id)
-        } else if let Some(ev) = event.as_any().downcast_ref::<PluginActivate>() {
-            format!("on_plugin_activate({{ name: \"{}\" }})", ev.name)
-        } else if let Some(ev) = event.as_any().downcast_ref::<PluginAction>() {
-            format!("on_plugin_action({{ plugin: \"{}\", action: \"{}\", payload: \"{}\" }})", ev.plugin, ev.action, ev.payload)
-        } else {
-            format!("{}()", func_name)
-        };
-        let _ = self.context.with(|ctx| {
-            ctx.eval::<(), _>(js.as_str())
-        });
-    }
 }
 
 impl Plugin for JsPlugin {
     fn on_load(&mut self) -> Result<(), Box<dyn std::error::Error>> { Ok(()) }
     fn on_unload(&mut self) {}
     fn on_event(&mut self, event: Arc<dyn Event>) {
-        self.handle_event(event.as_ref());
+        let et = event.event_type();
+        if !self.subs.iter().any(|s| s == et) {
+            return;
+        }
+        let func_name = js_func_name(et);
+        let repr = event.js_repr();
+        let js = if repr.is_empty() {
+            format!("{}()", func_name)
+        } else {
+            format!("{}({})", func_name, repr)
+        };
+        let _ = self.context.with(|ctx| {
+            ctx.eval::<(), _>(js.as_str())
+        });
     }
 }
