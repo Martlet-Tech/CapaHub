@@ -131,7 +131,6 @@ version = "0.1.0"
 dependencies = [
  "crossbeam-channel",
  "libloading",
- "rusqlite",
  "serde",
  "serde_json",
  "toml",
@@ -188,6 +187,7 @@ dependencies = [
  "crossbeam-channel",
  "plugin_api",
  "rquickjs",
+ "rusqlite",
  "serde",
  "serde_json",
  "webview2",

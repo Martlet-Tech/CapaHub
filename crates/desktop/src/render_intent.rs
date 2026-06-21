@@ -1,8 +1,6 @@
-use crate::event::Event;
+use core::event::Event;
 use std::any::Any;
 use std::sync::Arc;
-
-// ===== 入口 =====
 
 pub enum RenderIntent {
     Window(WindowConfig),
@@ -28,14 +26,11 @@ impl Clone for RenderIntent {
     }
 }
 
-// EventBus 事件包装——跨 DLL 边界安全
 pub struct RenderIntentEvent(pub RenderIntent);
 impl Event for RenderIntentEvent {
     fn event_type(&self) -> &'static str { "render.intent" }
     fn as_any(&self) -> &dyn Any { self }
 }
-
-// ===== Window =====
 
 pub struct WindowConfig {
     pub width: u32,
@@ -57,8 +52,6 @@ pub enum WindowPosition {
     At { x: i32, y: i32 },
 }
 
-// ===== Overlay =====
-
 pub struct OverlayConfig {
     pub bounds: OverlayBounds,
     pub transparent: bool,
@@ -72,8 +65,6 @@ pub enum OverlayBounds {
     Region { x: i32, y: i32, width: u32, height: u32 },
     FollowCursor { width: u32, height: u32, offset_x: i32, offset_y: i32 },
 }
-
-// ===== DrawCmd =====
 
 #[derive(Clone)]
 pub enum DrawCmd {
@@ -159,8 +150,6 @@ pub struct DrawHitArea {
     pub height: u32,
     pub id: u64,
 }
-
-// ===== 鼠标事件（Overlay 回调用） =====
 
 #[derive(Clone)]
 pub struct OverlayMouseEvent {

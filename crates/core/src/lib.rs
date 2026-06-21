@@ -7,7 +7,6 @@ pub mod plugin;
 pub mod plugin_context;
 pub mod plugin_context_ffi;
 pub mod plugin_manager;
-pub mod render_intent;
 pub mod storage;
 
 pub use app_context::AppContext;
@@ -18,5 +17,4 @@ pub use logger::{Logger, set_file_logging};
 pub use plugin::Plugin;
 pub use plugin_context::PluginContext;
 pub use plugin_manager::{JsCapabilities, JsPluginFactory, PluginInfo, PluginManager, PluginState};
-pub use render_intent::{DrawCmd, OverlayConfig, OverlayMouseButton, OverlayMouseEvent, RenderIntent, WindowConfig, WindowPosition};
-pub use storage::Storage;
+pub use storage::{InMemoryStorage, StorageProvider};

@@ -2,7 +2,7 @@ use core::event::Event;
 use core::plugin::Plugin;
 use core::plugin_context::PluginContext;
 use core::plugin_manager::JsCapabilities;
-use core::render_intent::*;
+use crate::render_intent::*;
 use rquickjs::{context::Context, function::Func, object::Object as JsObj, Runtime};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};

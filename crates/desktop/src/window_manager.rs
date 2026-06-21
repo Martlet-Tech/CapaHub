@@ -1,4 +1,4 @@
-use core::render_intent::*;
+use crate::render_intent::*;
 use windows_sys::Win32::Foundation::*;
 use windows_sys::Win32::Graphics::Gdi::*;
 use windows_sys::Win32::UI::WindowsAndMessaging::*;

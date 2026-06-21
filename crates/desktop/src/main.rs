@@ -9,6 +9,8 @@ mod js_runtime;
 mod log_window;
 mod overlay;
 mod plugin_manager_window;
+mod render_intent;
+mod storage;
 mod tray;
 mod webview_host;
 mod window_manager;
@@ -70,7 +72,7 @@ fn main() {
     {
         let log2 = app.logger.clone();
         crate::capability::register_intent(std::sync::Arc::new(move |intent| {
-            use core::render_intent::RenderIntent;
+            use crate::render_intent::RenderIntent;
             match intent {
                 RenderIntent::Window(cfg) => {
                     log2.info("core", &format!("render window: {}x{}", cfg.width, cfg.height));

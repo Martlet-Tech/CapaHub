@@ -2,14 +2,14 @@ use core::config::Config;
 use core::eventbus::EventBus;
 use core::logger::Logger;
 use core::plugin_manager::{JsPluginFactory, PluginManager};
-use core::storage::Storage;
-use crossbeam_channel::unbounded;
 use std::sync::Arc;
+use crossbeam_channel::unbounded;
 
 use crate::hook_manager::HookManager;
 use crate::icon_loader;
 use crate::js_runtime;
 use crate::log_window::LogWindow;
+use crate::storage::SqliteStorage;
 use crate::tray::TrayIcon;
 
 pub struct App {
@@ -18,7 +18,7 @@ pub struct App {
     pub eventbus: Arc<EventBus>,
     pub hook_manager: Arc<HookManager>,
     pub plugin_manager: Arc<PluginManager>,
-    pub storage: Arc<core::storage::Storage>,
+    pub storage: Arc<SqliteStorage>,
     pub tray: TrayIcon,
 }
 
@@ -38,7 +38,7 @@ impl App {
         let tray = TrayIcon::with_icon(icon_loader::get_tray_icon());
 
         let storage = Arc::new(
-            Storage::new(&config.data_dir.join("storage.db"))
+            SqliteStorage::new(&config.data_dir.join("storage.db"))
                 .unwrap_or_else(|e| {
                     logger.error("core", &format!("Storage init failed: {}", e));
                     std::process::exit(1);
@@ -49,7 +49,7 @@ impl App {
             eventbus.clone(),
             logger.clone(),
             Arc::new(config.clone()),
-            storage.clone(),
+            storage.clone() as Arc<dyn core::storage::StorageProvider>,
         );
         let js_factory: JsPluginFactory = Arc::new(|js_path, ctx, subs, caps| {
             js_runtime::create_js_plugin(js_path, ctx, subs, caps)

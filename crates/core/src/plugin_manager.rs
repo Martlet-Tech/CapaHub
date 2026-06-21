@@ -5,7 +5,7 @@ use crate::logger::Logger;
 use crate::plugin::Plugin;
 use crate::plugin_context::PluginContext;
 use crate::plugin_context_ffi::PluginContextFFI;
-use crate::storage::Storage;
+use crate::storage::StorageProvider;
 use libloading::Library;
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -98,12 +98,12 @@ pub struct PluginManager {
     eventbus: Arc<EventBus>,
     logger: Arc<Logger>,
     config: Arc<Config>,
-    storage: Arc<Storage>,
+    storage: Arc<dyn StorageProvider>,
     js_factory: Option<JsPluginFactory>,
 }
 
 impl PluginManager {
-    pub fn new(eventbus: Arc<EventBus>, logger: Arc<Logger>, config: Arc<Config>, storage: Arc<Storage>) -> Self {
+    pub fn new(eventbus: Arc<EventBus>, logger: Arc<Logger>, config: Arc<Config>, storage: Arc<dyn StorageProvider>) -> Self {
         PluginManager {
             plugins: Mutex::new(Vec::new()),
             eventbus,

@@ -1,4 +1,4 @@
-use core::render_intent::RenderIntent;
+use crate::render_intent::RenderIntent;
 use std::sync::{Arc, Mutex};
 
 type SharedPasteFn = Arc<dyn Fn(String) + Send + Sync + 'static>;

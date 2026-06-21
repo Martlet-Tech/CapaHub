@@ -1,53 +1,26 @@
-use rusqlite::Connection;
-use std::path::Path;
+use std::collections::HashMap;
 use std::sync::Mutex;
 
-pub struct Storage {
-    conn: Mutex<Connection>,
+pub trait StorageProvider: Send + Sync {
+    fn get(&self, plugin: &str, key: &str) -> Option<String>;
+    fn set(&self, plugin: &str, key: &str, value: &str);
 }
 
-impl Storage {
-    pub fn new(db_path: &Path) -> Result<Self, Box<dyn std::error::Error>> {
-        if let Some(parent) = db_path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        let conn = Connection::open(db_path)?;
-        Self::init(&conn)?;
-        Ok(Storage { conn: Mutex::new(conn) })
-    }
+pub struct InMemoryStorage {
+    data: Mutex<HashMap<(String, String), String>>,
+}
 
-    pub fn new_in_memory() -> Result<Self, Box<dyn std::error::Error>> {
-        let conn = Connection::open_in_memory()?;
-        Self::init(&conn)?;
-        Ok(Storage { conn: Mutex::new(conn) })
+impl InMemoryStorage {
+    pub fn new() -> Self {
+        InMemoryStorage { data: Mutex::new(HashMap::new()) }
     }
+}
 
-    fn init(conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS plugin_kv (
-                plugin_name TEXT NOT NULL,
-                key TEXT NOT NULL,
-                value TEXT NOT NULL DEFAULT '',
-                PRIMARY KEY (plugin_name, key)
-            )"
-        )?;
-        Ok(())
+impl StorageProvider for InMemoryStorage {
+    fn get(&self, plugin: &str, key: &str) -> Option<String> {
+        self.data.lock().unwrap().get(&(plugin.to_string(), key.to_string())).cloned()
     }
-
-    pub fn get(&self, plugin: &str, key: &str) -> Option<String> {
-        let conn = self.conn.lock().unwrap();
-        conn.query_row(
-            "SELECT value FROM plugin_kv WHERE plugin_name = ?1 AND key = ?2",
-            [plugin, key],
-            |row| row.get(0),
-        ).ok()
-    }
-
-    pub fn set(&self, plugin: &str, key: &str, value: &str) {
-        let conn = self.conn.lock().unwrap();
-        let _ = conn.execute(
-            "INSERT OR REPLACE INTO plugin_kv (plugin_name, key, value) VALUES (?1, ?2, ?3)",
-            [plugin, key, value],
-        );
+    fn set(&self, plugin: &str, key: &str, value: &str) {
+        self.data.lock().unwrap().insert((plugin.to_string(), key.to_string()), value.to_string());
     }
 }
