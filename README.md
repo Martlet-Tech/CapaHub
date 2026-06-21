@@ -191,4 +191,4 @@ cargo build --release -p core   # 构建 release
 
 ## 协议 License
 
-MIT
+AGPL-3.0
