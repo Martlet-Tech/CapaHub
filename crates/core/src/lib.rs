@@ -7,6 +7,7 @@ pub mod js_runtime;
 pub mod logger;
 pub mod plugin;
 pub mod plugin_context;
+pub mod plugin_context_ffi;
 pub mod plugin_manager;
 pub mod render_intent;
 pub mod storage;

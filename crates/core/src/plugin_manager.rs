@@ -4,7 +4,7 @@ use crate::eventbus::{EventBus, SubscriptionId};
 use crate::logger::Logger;
 use crate::plugin::Plugin;
 use crate::plugin_context::PluginContext;
-use plugin_api::PluginContextFFI;
+use crate::plugin_context_ffi::PluginContextFFI;
 use crate::storage::Storage;
 use libloading::Library;
 use serde::Deserialize;

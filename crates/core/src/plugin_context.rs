@@ -21,12 +21,12 @@ impl PluginContext {
 
     pub fn close_intent(&self) {}
 
-    pub fn to_ffi(&self) -> plugin_api::PluginContextFFI {
+    pub fn to_ffi(&self) -> crate::plugin_context_ffi::PluginContextFFI {
         let config_path_wide: Vec<u16> = self.config_path.as_os_str().encode_wide().collect();
         let config_path_ptr = config_path_wide.as_ptr();
         std::mem::forget(config_path_wide);
 
-        plugin_api::PluginContextFFI {
+        crate::plugin_context_ffi::PluginContextFFI {
             logger: Arc::as_ptr(&self.logger) as *mut std::ffi::c_void,
             eventbus: Arc::as_ptr(&self.eventbus) as *mut std::ffi::c_void,
             config_path: config_path_ptr,
@@ -34,7 +34,7 @@ impl PluginContext {
         }
     }
 
-    pub unsafe fn from_ffi(ffi: &plugin_api::PluginContextFFI) -> Self {
+    pub unsafe fn from_ffi(ffi: &crate::plugin_context_ffi::PluginContextFFI) -> Self {
         let logger = Arc::from_raw(ffi.logger as *const Logger);
         let eventbus = Arc::from_raw(ffi.eventbus as *const EventBus);
         let plugin_name = {
