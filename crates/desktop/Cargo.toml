@@ -3,6 +3,10 @@ name = "desktop"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "capahub"
+path = "src/main.rs"
+
 [dependencies]
 core = { path = "../core" }
 plugin_api = { path = "../plugin_api" }
