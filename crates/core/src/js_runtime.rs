@@ -49,6 +49,7 @@ pub struct JsCapabilities {
     pub clipboard: bool,
     pub input: bool,
     pub overlay: bool,
+    pub screen: bool,
 }
 
 impl JsPlugin {
@@ -182,6 +183,17 @@ impl JsPlugin {
                         .unwrap_or_else(|| "error:no provider".to_string())
                 }))?;
                 js_ctx.set("overlay", overlay_obj)?;
+            }
+
+            // ── ctx.screen (only if capability declared) ──────
+            if caps.screen {
+                let screen_obj = JsObj::new(ctx.clone())?;
+                screen_obj.set("capture", Func::new(|x: i32, y: i32, w: i32, h: i32| -> String {
+                    capability::capture_provider()
+                        .map(|p| p(x, y, w, h))
+                        .unwrap_or_default()
+                }))?;
+                js_ctx.set("screen", screen_obj)?;
             }
 
             let st2 = st.clone();

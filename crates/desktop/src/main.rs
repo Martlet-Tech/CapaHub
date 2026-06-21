@@ -2,6 +2,7 @@ mod act;
 mod bootstrap;
 mod clipboard;
 mod hook_manager;
+mod hotkey;
 mod icon_loader;
 mod log_window;
 mod overlay;
@@ -94,7 +95,12 @@ fn main() {
         crate::overlay::handle_cmd(&json)
     }));
 
+    core::capability::register_capture(std::sync::Arc::new(|x: i32, y: i32, w: i32, h: i32| {
+        crate::act::screen::capture(x, y, w, h)
+    }));
+
     crate::clipboard::init(app.tray.hwnd as isize, &app.logger);
+    crate::hotkey::init();
 
     let started = Arc::new(AppStarted);
     app.eventbus.publish(started);
@@ -116,7 +122,11 @@ fn run_message_loop() {
             0 | -1 => break,
             _ => {
                 if msg.message == WM_HOTKEY && msg.wParam == 1 {
-                    crate::clipboard::on_hotkey();
+                    crate::hotkey::on_hotkey(1);
+                    continue;
+                }
+                if msg.message == WM_HOTKEY && msg.wParam == 2 {
+                    crate::hotkey::on_hotkey(2);
                     continue;
                 }
                 unsafe {

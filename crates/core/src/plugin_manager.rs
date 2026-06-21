@@ -44,6 +44,8 @@ struct CapabilitiesDecl {
     input: bool,
     #[serde(default)]
     overlay: bool,
+    #[serde(default)]
+    screen: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -453,6 +455,7 @@ impl PluginManager {
             clipboard: manifest.capabilities.clipboard,
             input: manifest.capabilities.input,
             overlay: manifest.capabilities.overlay,
+            screen: manifest.capabilities.screen,
         };
         let plugin = crate::js_runtime::JsPlugin::load(
             &js_path,

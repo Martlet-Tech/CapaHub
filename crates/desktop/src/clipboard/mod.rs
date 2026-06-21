@@ -1,4 +1,4 @@
-// Clipboard capability — Win32 clipboard read/write, listener, hotkey.
+// Clipboard capability — Win32 clipboard read/write, listener.
 pub mod events;
 
 use crate::hook_manager;
@@ -8,8 +8,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::*;
 
-const MOD_CONTROL: u32 = 0x0002;
-const MOD_SHIFT: u32 = 0x0004;
 const CF_UNICODETEXT: u32 = 13;
 
 static CLIPBOARD_SELF_CHANGE: AtomicBool = AtomicBool::new(false);
@@ -32,7 +30,6 @@ extern "system" {
 
 #[link(name = "user32")]
 extern "system" {
-    fn RegisterHotKey(hwnd: *mut c_void, id: i32, fsModifiers: u32, vk: u32) -> i32;
     fn AddClipboardFormatListener(hwnd: *mut c_void) -> i32;
     fn SendInput(cInputs: u32, pInputs: *mut INPUT, cbSize: i32) -> u32;
 }
@@ -40,7 +37,6 @@ extern "system" {
 /// Called once at startup. hwnd is the tray message window.
 pub fn init(hwnd: isize, logger: &core::logger::Logger) {
     unsafe {
-        RegisterHotKey(std::ptr::null_mut(), 1, MOD_CONTROL | MOD_SHIFT, 'V' as u32);
         let ok = AddClipboardFormatListener(hwnd as *mut c_void);
         if ok == 0 {
             logger.warn("clipboard", "AddClipboardFormatListener failed");
@@ -48,15 +44,6 @@ pub fn init(hwnd: isize, logger: &core::logger::Logger) {
             logger.info("clipboard", "Clipboard listener registered");
         }
     }
-}
-
-/// Handler for WM_HOTKEY. Returns true if the hotkey was consumed.
-pub fn on_hotkey() -> bool {
-    let ptr = hook_manager::get_eventbus_ptr();
-    if ptr.is_null() { return false; }
-    let eb = unsafe { &*(ptr as *const EventBus) };
-    eb.publish(Arc::new(events::ShowClipboard));
-    true
 }
 
 /// Handler for WM_CLIPBOARDUPDATE. Checks self-change flag, reads text, publishes event.
