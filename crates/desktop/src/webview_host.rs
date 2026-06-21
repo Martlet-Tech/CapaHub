@@ -68,7 +68,7 @@ pub fn create_webview_window(
                 0x00000080,
                 class_name.as_ptr(),
                 title_wide.as_ptr(),
-                0x80000000 | 0x00C00000 | 0x00040000 | 0x00080000,
+                0x80000000 | 0x00C00000 | 0x00080000,
                 -1, -1, width, height,
                 std::ptr::null_mut(),
                 std::ptr::null_mut(),
