@@ -37,13 +37,19 @@ fn send_one(chars: &[char], i: usize) -> usize {
             if let Some(end) = chars[j..].iter().position(|&c| c == '}') {
                 let name: String = chars[j+1..j+end].iter().collect();
                 send_named(&name);
-                // Release modifiers
                 for &vk in mods.iter().rev() { send_key(vk, KEYEVENTF_KEYUP); }
                 return (j + end + 1) - i;
             }
         }
         c => {
-            send_unicode(c);
+            if !mods.is_empty() {
+                // Use virtual key for modifier combos (Ctrl+W, Shift+T, etc.)
+                let vk = c.to_ascii_uppercase() as u16;
+                let inputs = [keybd(vk, 0), keybd(vk, KEYEVENTF_KEYUP)];
+                send_batch(&inputs);
+            } else {
+                send_unicode(c);
+            }
             for &vk in mods.iter().rev() { send_key(vk, KEYEVENTF_KEYUP); }
             return (j + 1) - i;
         }

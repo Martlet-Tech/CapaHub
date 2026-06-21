@@ -28,6 +28,7 @@ struct OverlayWindow {
     hdc: Hdc, bitmap: Hbmp,
     cached: Option<Hbmp>,
     opaque: Cell<bool>,
+    alpha: Cell<u8>,
 }
 
 pub fn init() { *MANAGER.lock().unwrap() = Some(OverlayManager { next_id: 1, windows: HashMap::new() }); }
@@ -44,13 +45,14 @@ pub fn handle_cmd(json: &str) -> Result<u32, String> {
             let y = v["y"].as_i64().unwrap_or(0) as i32;
             let mut w = v["w"].as_i64().unwrap_or(0) as i32;
             let mut h = v["h"].as_i64().unwrap_or(0) as i32;
+            let transparent = v["t"].as_bool().unwrap_or(true); // default click-through
             if w == 0 { unsafe { w = GetSystemMetrics(SM_CXVIRTUALSCREEN); } }
             if h == 0 { unsafe { h = GetSystemMetrics(SM_CYVIRTUALSCREEN); } }
             let x = unsafe { GetSystemMetrics(SM_XVIRTUALSCREEN) + x };
             let y = unsafe { GetSystemMetrics(SM_YVIRTUALSCREEN) + y };
             let id = mgr.next_id; mgr.next_id += 1;
-            let (hwnd, hdc, bitmap) = create_overlay(x, y, w, h)?;
-            mgr.windows.insert(id, OverlayWindow { hwnd, w, h, hdc, bitmap, cached: None, opaque: Cell::new(false) });
+            let (hwnd, hdc, bitmap) = create_overlay(x, y, w, h, transparent)?;
+            mgr.windows.insert(id, OverlayWindow { hwnd, w, h, hdc, bitmap, cached: None, opaque: Cell::new(false), alpha: Cell::new(255) });
             Ok(id)
         }
         "freeze" => { let h = v["h"].as_u64().unwrap_or(0) as u32; freeze_screen(mgr.windows.get(&h).ok_or("invalid handle")?) }
@@ -64,16 +66,26 @@ pub fn handle_cmd(json: &str) -> Result<u32, String> {
         }
         "draw_line" => { let h = v["h"].as_u64().unwrap_or(0) as u32; let win = mgr.windows.get(&h).ok_or("invalid handle")?; draw_line_on(win, v["x1"].as_i64().unwrap_or(0) as i32, v["y1"].as_i64().unwrap_or(0) as i32, v["x2"].as_i64().unwrap_or(0) as i32, v["y2"].as_i64().unwrap_or(0) as i32, v["color"].as_u64().unwrap_or(0xFF0000) as u32, v["thickness"].as_u64().unwrap_or(2) as i32)?; Ok(h) }
         "clear" => { let h = v["h"].as_u64().unwrap_or(0) as u32; clear_window(mgr.windows.get(&h).ok_or("invalid handle")?)?; Ok(h) }
+        "dim" => {
+            let h = v["h"].as_u64().unwrap_or(0) as u32;
+            let win = mgr.windows.get(&h).ok_or("invalid handle")?;
+            win.opaque.set(true);
+            win.alpha.set(40); // ~16% opacity — subtle tint, lines visible
+            flush(win)?;
+            Ok(h)
+        }
         "destroy" => { let h = v["h"].as_u64().unwrap_or(0) as u32; if let Some(w) = mgr.windows.remove(&h) { destroy_overlay(w); } Ok(h) }
         _ => Err(format!("unknown cmd: {}", cmd)),
     }
 }
 
-fn create_overlay(x: i32, y: i32, w: i32, h: i32) -> Result<(Hwnd, Hdc, Hbmp), String> {
+fn create_overlay(x: i32, y: i32, w: i32, h: i32, transparent: bool) -> Result<(Hwnd, Hdc, Hbmp), String> {
     let hinst = unsafe { GetModuleHandleA(std::ptr::null()) };
     let class: Vec<u16> = "CapaOverlay\0".encode_utf16().collect();
     unsafe { RegisterClassW(&WNDCLASSW { style:0, lpfnWndProc:Some(DefWindowProcW), cbClsExtra:0, cbWndExtra:0, hInstance:hinst, hIcon:std::ptr::null_mut(), hCursor:std::ptr::null_mut(), hbrBackground:std::ptr::null_mut(), lpszMenuName:std::ptr::null_mut(), lpszClassName:class.as_ptr() as *mut u16 }); }
-    let hwnd = unsafe { CreateWindowExW(WS_EX_LAYERED|WS_EX_TOPMOST|WS_EX_TOOLWINDOW, class.as_ptr(), std::ptr::null(), WS_POPUP, x, y, w, h, std::ptr::null_mut(), std::ptr::null_mut(), hinst, std::ptr::null()) };
+    let ex_style = WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW
+        | if transparent { WS_EX_TRANSPARENT } else { 0 };
+    let hwnd = unsafe { CreateWindowExW(ex_style, class.as_ptr(), std::ptr::null(), WS_POPUP, x, y, w, h, std::ptr::null_mut(), std::ptr::null_mut(), hinst, std::ptr::null()) };
     if hwnd.is_null() { return Err("CreateWindowEx failed".into()); }
     unsafe { ShowWindow(hwnd, SW_SHOWNOACTIVATE); }
     let (hdc, bitmap) = unsafe {
@@ -145,7 +157,7 @@ fn clear_window(win: &OverlayWindow) -> Result<(), String> {
 fn flush(win: &OverlayWindow) -> Result<(), String> {
     unsafe {
         let screen = GetDC(std::ptr::null_mut());
-        let blend = if win.opaque.get() { BLENDFUNCTION{BlendOp:0,BlendFlags:0,SourceConstantAlpha:255,AlphaFormat:0} } else { BLENDFUNCTION{BlendOp:0,BlendFlags:0,SourceConstantAlpha:255,AlphaFormat:1} };
+        let blend = if win.opaque.get() { BLENDFUNCTION{BlendOp:0,BlendFlags:0,SourceConstantAlpha:win.alpha.get(),AlphaFormat:0} } else { BLENDFUNCTION{BlendOp:0,BlendFlags:0,SourceConstantAlpha:255,AlphaFormat:1} };
         let sz = SIZE{cx:win.w,cy:win.h}; let pt=POINT{x:0,y:0};
         let ok = UpdateLayeredWindow(win.hwnd.0, screen, &pt, &sz, win.hdc.0, &pt, 0, &blend, ULW_ALPHA);
         ReleaseDC(std::ptr::null_mut(), screen);
