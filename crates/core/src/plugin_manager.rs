@@ -514,12 +514,12 @@ impl PluginManager {
                 if event.event_type() == "mouse.move" {
                     let n = c.fetch_add(1, Ordering::Relaxed);
                     if n % 100 != 0 {
-                        if let Ok(mut p) = pa.lock() { p.on_event(event); }
+                        if let Ok(mut p) = pa.try_lock() { p.on_event(event); }
                         return;
                     }
                 }
                 l.debug("evbus", &format!("dispatch {} to {}", event.event_type(), pn));
-                if let Ok(mut p) = pa.lock() {
+                if let Ok(mut p) = pa.try_lock() {
                     p.on_event(event);
                 }
             }));

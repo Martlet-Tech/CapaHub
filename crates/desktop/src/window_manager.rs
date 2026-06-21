@@ -67,7 +67,7 @@ fn run_window(
 
     let hwnd = unsafe {
         CreateWindowExW(
-            WS_EX_TOOLWINDOW,
+            WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
             class_name.as_ptr(),
             std::ptr::null(),
             WS_POPUP | WS_VISIBLE | WS_BORDER,
@@ -112,7 +112,14 @@ fn run_window(
 }
 
 fn compute_position(width: u32, height: u32, position: &WindowPosition) -> (i32, i32) {
-    let sw = 1920; let sh = 1080;
+    let sw = unsafe { 
+        extern "system" { fn GetSystemMetrics(nIndex: i32) -> i32; }
+        GetSystemMetrics(0) // SM_CXSCREEN
+    };
+    let sh = unsafe {
+        extern "system" { fn GetSystemMetrics(nIndex: i32) -> i32; }
+        GetSystemMetrics(1) // SM_CYSCREEN
+    };
     match position {
         WindowPosition::NearCursor => {
             let mut pt = unsafe { std::mem::zeroed::<POINT>() };
@@ -151,7 +158,8 @@ unsafe extern "system" fn popup_wndproc(
             if ptr != 0 {
                 let s = state_ref(ptr);
                 let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
-                if now - s.created_at > 500 { DestroyWindow(hwnd); }
+                // Only auto-close if has hit areas (interactive picker), not for passive display popups
+                if now - s.created_at > 500 && !s.hit_areas.is_empty() { DestroyWindow(hwnd); }
             }
             0
         }

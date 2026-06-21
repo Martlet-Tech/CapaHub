@@ -88,12 +88,16 @@ impl JsPlugin {
             }))?;
 
             let eb = eventbus.clone();
+            let log2 = logger.clone();
             js_ctx.set("commit_intent", Func::new(move |type_name: String, cfg_json: String| {
                 let intent = match type_name.as_str() {
                     "window" => {
                         let jsc = match serde_json::from_str::<JsWindowConfig>(&cfg_json) {
                             Ok(c) => c,
-                            Err(_) => return,
+                            Err(e) => {
+                                log2.error("js", &format!("commit_intent parse fail: {}", e));
+                                return;
+                            }
                         };
                         let pos = match jsc.position.as_str() {
                             "follow_focus" => WindowPosition::FollowFocus,
