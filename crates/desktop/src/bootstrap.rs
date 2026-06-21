@@ -56,12 +56,18 @@ impl App {
         }
         plugin_manager.enable_all();
 
-        let needs_hook = plugin_manager.any_hook_requested();
-        if needs_hook {
+        if plugin_manager.mouse_hook_requested() {
             if let Err(e) = hook_manager.register_mouse_hook() {
                 logger.error("core", &format!("Mouse hook failed: {}", e));
             } else {
                 logger.info("core", "Mouse hook registered");
+            }
+        }
+        if plugin_manager.keyboard_hook_requested() {
+            if let Err(e) = hook_manager.register_keyboard_hook() {
+                logger.error("core", &format!("Keyboard hook failed: {}", e));
+            } else {
+                logger.info("core", "Keyboard hook registered");
             }
         }
 

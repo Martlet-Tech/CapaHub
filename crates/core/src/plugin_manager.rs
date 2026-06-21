@@ -375,7 +375,22 @@ impl PluginManager {
     pub fn any_hook_requested(&self) -> bool {
         let plugins = self.plugins.lock().unwrap();
         plugins.iter().any(|p| {
+            (p.manifest.hooks.mouse.unwrap_or(false) || p.manifest.hooks.keyboard.unwrap_or(false))
+                && p.state == PluginState::Enabled
+        })
+    }
+
+    pub fn mouse_hook_requested(&self) -> bool {
+        let plugins = self.plugins.lock().unwrap();
+        plugins.iter().any(|p| {
             p.manifest.hooks.mouse.unwrap_or(false) && p.state == PluginState::Enabled
+        })
+    }
+
+    pub fn keyboard_hook_requested(&self) -> bool {
+        let plugins = self.plugins.lock().unwrap();
+        plugins.iter().any(|p| {
+            p.manifest.hooks.keyboard.unwrap_or(false) && p.state == PluginState::Enabled
         })
     }
 

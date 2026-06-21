@@ -13,7 +13,7 @@ pub mod storage;
 
 pub use app_context::AppContext;
 pub use config::Config;
-pub use event::{AppShutdown, AppStarted, DynamicEvent, Event, MouseButton, MouseDown, MouseEvent, MouseMove, MouseUp, PluginActivate, PluginAction, PluginDisabled, PluginEnabled, PluginLoaded};
+pub use event::{AppShutdown, AppStarted, DynamicEvent, Event, KeyDown, KeyEvent, KeyUp, MouseButton, MouseDown, MouseEvent, MouseMove, MouseUp, PluginActivate, PluginAction, PluginDisabled, PluginEnabled, PluginLoaded};
 pub use eventbus::{EventBus, SubscriptionId};
 pub use logger::{Logger, set_file_logging};
 pub use plugin::Plugin;

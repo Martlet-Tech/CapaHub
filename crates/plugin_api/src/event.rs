@@ -65,6 +65,33 @@ impl Event for MouseUp {
     }
 }
 
+// ── Keyboard events ──────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct KeyEvent {
+    pub vk_code: u32,
+    pub pressed: bool,
+    pub timestamp: u64,
+}
+
+pub struct KeyDown(pub KeyEvent);
+impl Event for KeyDown {
+    fn event_type(&self) -> &'static str { "keyboard.down" }
+    fn as_any(&self) -> &dyn Any { self }
+    fn js_repr(&self) -> String {
+        format!("{{ vk: {}, ts: {} }}", self.0.vk_code, self.0.timestamp)
+    }
+}
+
+pub struct KeyUp(pub KeyEvent);
+impl Event for KeyUp {
+    fn event_type(&self) -> &'static str { "keyboard.up" }
+    fn as_any(&self) -> &dyn Any { self }
+    fn js_repr(&self) -> String {
+        format!("{{ vk: {}, ts: {} }}", self.0.vk_code, self.0.timestamp)
+    }
+}
+
 fn mouse_js_repr(me: &MouseEvent) -> String {
     let btn = match me.button {
         MouseButton::Left => "Left",

@@ -3,7 +3,7 @@ pub mod plugin;
 pub mod plugin_context;
 
 pub use event::{
-    AppShutdown, AppStarted, DynamicEvent, Event, MouseButton,
+    AppShutdown, AppStarted, DynamicEvent, Event, KeyDown, KeyEvent, KeyUp, MouseButton,
     MouseDown, MouseEvent, MouseMove, MouseUp, PluginActivate, PluginAction, PluginDisabled,
     PluginEnabled, PluginLoaded,
 };

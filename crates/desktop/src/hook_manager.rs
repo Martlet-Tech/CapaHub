@@ -1,15 +1,17 @@
 use core::eventbus::EventBus;
 use core::logger::Logger;
-use plugin_api::{Event, MouseButton, MouseDown, MouseEvent, MouseMove, MouseUp};
+use plugin_api::{Event, KeyDown, KeyEvent, KeyUp, MouseButton, MouseDown, MouseEvent, MouseMove, MouseUp};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::*;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleA;
 use std::ffi::c_void;
 
 pub struct HookManager {
     eventbus: Arc<EventBus>,
     mouse_hook: Mutex<Option<isize>>,
+    keyboard_hook: Mutex<Option<isize>>,
 }
 
 impl HookManager {
@@ -17,6 +19,7 @@ impl HookManager {
         HookManager {
             eventbus,
             mouse_hook: Mutex::new(None),
+            keyboard_hook: Mutex::new(None),
         }
     }
 
@@ -52,6 +55,30 @@ impl HookManager {
 
     pub fn has_mouse_hook(&self) -> bool {
         self.mouse_hook.lock().unwrap().is_some()
+    }
+
+    pub fn register_keyboard_hook(&self) -> Result<(), &'static str> {
+        let mut hook = self.keyboard_hook.lock().unwrap();
+        if hook.is_some() { return Ok(()); }
+        let hook_proc: HOOKPROC = Some(keyboard_proc_callback);
+        let hook_handle = unsafe {
+            let module = GetModuleHandleA(std::ptr::null());
+            SetWindowsHookExA(WH_KEYBOARD_LL, hook_proc, module, 0)
+        };
+        if hook_handle.is_null() { return Err("SetWindowsHookEx WH_KEYBOARD_LL failed"); }
+        *hook = Some(hook_handle as isize);
+        Ok(())
+    }
+
+    pub fn unregister_keyboard_hook(&self) {
+        let mut hook = self.keyboard_hook.lock().unwrap();
+        if let Some(h) = hook.take() {
+            unsafe { UnhookWindowsHookEx(h as *mut c_void); }
+        }
+    }
+
+    pub fn has_keyboard_hook(&self) -> bool {
+        self.keyboard_hook.lock().unwrap().is_some()
     }
 }
 
@@ -130,6 +157,31 @@ unsafe extern "system" fn mouse_proc_callback(ncode: i32, wparam: usize, lparam:
             }
         }
 
+        eventbus.publish(arc_event);
+    }
+
+    if EAT_MOUSE { return 1; }
+
+    CallNextHookEx(std::ptr::null_mut(), ncode, wparam, lparam)
+}
+
+unsafe extern "system" fn keyboard_proc_callback(ncode: i32, wparam: usize, lparam: isize) -> isize {
+    if ncode < 0 {
+        return CallNextHookEx(std::ptr::null_mut(), ncode, wparam, lparam);
+    }
+    let pressed = wparam as u32 == WM_KEYDOWN || wparam as u32 == WM_SYSKEYDOWN;
+    let info = &*(lparam as *const KBDLLHOOKSTRUCT);
+    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
+    let key_event = KeyEvent { vk_code: info.vkCode, pressed, timestamp };
+
+    let event_bus_ptr = get_eventbus_ptr();
+    if !event_bus_ptr.is_null() {
+        let eventbus = &*(event_bus_ptr as *const EventBus);
+        let arc_event: Arc<dyn Event> = if pressed {
+            Arc::new(KeyDown(key_event))
+        } else {
+            Arc::new(KeyUp(key_event))
+        };
         eventbus.publish(arc_event);
     }
 

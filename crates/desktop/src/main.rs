@@ -31,9 +31,15 @@ fn main() {
         let pm = app.plugin_manager.clone();
         app.eventbus.subscribe("plugin.enabled", Arc::new(move |ev: Arc<dyn Event>| {
             if let Some(pe) = ev.as_any().downcast_ref::<PluginEnabled>() {
-                if pe.needs_hook && !hk.has_mouse_hook() {
-                    let _ = hk.register_mouse_hook();
-                    pm.logger().info("core", "Mouse hook registered (runtime)");
+                if pe.needs_hook {
+                    if pm.mouse_hook_requested() && !hk.has_mouse_hook() {
+                        let _ = hk.register_mouse_hook();
+                        pm.logger().info("core", "Mouse hook registered (runtime)");
+                    }
+                    if pm.keyboard_hook_requested() && !hk.has_keyboard_hook() {
+                        let _ = hk.register_keyboard_hook();
+                        pm.logger().info("core", "Keyboard hook registered (runtime)");
+                    }
                 }
             }
         }));
@@ -43,9 +49,13 @@ fn main() {
         let pm = app.plugin_manager.clone();
         app.eventbus.subscribe("plugin.disabled", Arc::new(move |ev: Arc<dyn Event>| {
             if let Some(_pd) = ev.as_any().downcast_ref::<PluginDisabled>() {
-                if hk.has_mouse_hook() && !pm.any_hook_requested() {
+                if hk.has_mouse_hook() && !pm.mouse_hook_requested() {
                     hk.unregister_mouse_hook();
                     pm.logger().info("core", "Mouse hook unregistered");
+                }
+                if hk.has_keyboard_hook() && !pm.keyboard_hook_requested() {
+                    hk.unregister_keyboard_hook();
+                    pm.logger().info("core", "Keyboard hook unregistered");
                 }
             }
         }));
@@ -111,6 +121,7 @@ fn main() {
     app.logger.info("core", "Shutting down...");
     app.plugin_manager.unload_all();
     app.hook_manager.unregister_mouse_hook();
+    app.hook_manager.unregister_keyboard_hook();
     app.logger.info("core", "CapaHub exited");
 }
 
