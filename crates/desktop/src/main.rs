@@ -129,6 +129,10 @@ fn run_message_loop() {
                     crate::hotkey::on_hotkey(2);
                     continue;
                 }
+                if msg.message == WM_HOTKEY && msg.wParam == 3 {
+                    crate::hotkey::on_hotkey(3);
+                    continue;
+                }
                 unsafe {
                     TranslateMessage(&msg);
                     DispatchMessageW(&msg);
