@@ -14,6 +14,21 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
+#[derive(Debug, Clone, Default)]
+pub struct JsCapabilities {
+    pub clipboard: bool,
+    pub input: bool,
+    pub overlay: bool,
+    pub screen: bool,
+}
+
+pub type JsPluginFactory = Arc<dyn Fn(
+    PathBuf,
+    PluginContext,
+    Vec<String>,
+    JsCapabilities,
+) -> Result<Box<dyn Plugin>, Box<dyn std::error::Error>> + Send + Sync>;
+
 #[derive(Debug, Clone, Deserialize)]
 struct PluginManifest {
     plugin: PluginMeta,
@@ -84,6 +99,7 @@ pub struct PluginManager {
     logger: Arc<Logger>,
     config: Arc<Config>,
     storage: Arc<Storage>,
+    js_factory: Option<JsPluginFactory>,
 }
 
 impl PluginManager {
@@ -94,7 +110,12 @@ impl PluginManager {
             logger,
             config,
             storage,
+            js_factory: None,
         }
+    }
+
+    pub fn set_js_factory(&mut self, factory: JsPluginFactory) {
+        self.js_factory = Some(factory);
     }
 
     pub fn scan_and_load(&self) -> Result<(), Box<dyn std::error::Error>> {
@@ -466,23 +487,22 @@ impl PluginManager {
         if !js_path.exists() {
             return Err("main.js not found".into());
         }
-        let caps = crate::js_runtime::JsCapabilities {
+        let factory = self.js_factory.as_ref().ok_or("JS plugin factory not registered")?;
+        let caps = JsCapabilities {
             clipboard: manifest.capabilities.clipboard,
             input: manifest.capabilities.input,
             overlay: manifest.capabilities.overlay,
             screen: manifest.capabilities.screen,
         };
-        let plugin = crate::js_runtime::JsPlugin::load(
-            &js_path,
-            self.logger.clone(),
-            self.eventbus.clone(),
-            self.storage.clone(),
-            plugin_dir.join("config"),
-            plugin_name.to_string(),
-            &manifest.events.subscribes,
-            caps,
-        )?;
-        let plugin_arc = Arc::new(Mutex::new(Box::new(plugin) as Box<dyn Plugin>));
+        let ctx = PluginContext {
+            plugin_name: plugin_name.to_string(),
+            config_path: plugin_dir.join("config"),
+            logger: self.logger.clone(),
+            eventbus: self.eventbus.clone(),
+            storage: self.storage.clone(),
+        };
+        let plugin = factory(js_path, ctx, manifest.events.subscribes.clone(), caps)?;
+        let plugin_arc = Arc::new(Mutex::new(plugin));
         self.plugins.lock().unwrap().push(LoadedPlugin {
             manifest: manifest.clone(),
             instance: plugin_arc,

@@ -1,9 +1,11 @@
 mod act;
 mod bootstrap;
+mod capability;
 mod clipboard;
 mod hook_manager;
 mod hotkey;
 mod icon_loader;
+mod js_runtime;
 mod log_window;
 mod overlay;
 mod plugin_manager_window;
@@ -67,7 +69,7 @@ fn main() {
 
     {
         let log2 = app.logger.clone();
-        core::capability::register_intent(std::sync::Arc::new(move |intent| {
+        crate::capability::register_intent(std::sync::Arc::new(move |intent| {
             use core::render_intent::RenderIntent;
             match intent {
                 RenderIntent::Window(cfg) => {
@@ -81,31 +83,31 @@ fn main() {
 
     {
         let log3 = app.logger.clone();
-        core::capability::register_paste(std::sync::Arc::new(move |text: String| {
+        crate::capability::register_paste(std::sync::Arc::new(move |text: String| {
             log3.debug("core", &format!("paste: {} chars", text.len()));
             crate::clipboard::paste(&text);
         }));
     }
 
-    core::capability::register_read_text(std::sync::Arc::new(|| crate::clipboard::read_text()));
+    crate::capability::register_read_text(std::sync::Arc::new(|| crate::clipboard::read_text()));
 
-    core::capability::register_save_file(std::sync::Arc::new(|content: String, default_name: String| {
+    crate::capability::register_save_file(std::sync::Arc::new(|content: String, default_name: String| {
         let wide_path = save_file_dialog(&default_name);
         if let Some(path) = wide_path {
             let _ = std::fs::write(&path, &content);
         }
     }));
 
-    core::capability::register_send_keys(std::sync::Arc::new(|keys: String| {
+    crate::capability::register_send_keys(std::sync::Arc::new(|keys: String| {
         crate::act::input::send_keys(&keys);
     }));
 
     crate::overlay::init();
-    core::capability::register_overlay(std::sync::Arc::new(|json: String| {
+    crate::capability::register_overlay(std::sync::Arc::new(|json: String| {
         crate::overlay::handle_cmd(&json)
     }));
 
-    core::capability::register_capture(std::sync::Arc::new(|x: i32, y: i32, w: i32, h: i32| {
+    crate::capability::register_capture(std::sync::Arc::new(|x: i32, y: i32, w: i32, h: i32| {
         crate::act::screen::capture(x, y, w, h)
     }));
 

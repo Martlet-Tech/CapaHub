@@ -1,10 +1,10 @@
-// Platform capability providers — registered by desktop, consumed by JsPlugin.
+use core::render_intent::RenderIntent;
 use std::sync::{Arc, Mutex};
 
 type SharedPasteFn = Arc<dyn Fn(String) + Send + Sync + 'static>;
 type SharedReadTextFn = Arc<dyn Fn() -> Option<String> + Send + Sync + 'static>;
 type SharedSaveFileFn = Arc<dyn Fn(String, String) + Send + Sync + 'static>;
-type SharedIntentFn = Arc<dyn Fn(crate::render_intent::RenderIntent) + Send + Sync + 'static>;
+type SharedIntentFn = Arc<dyn Fn(RenderIntent) + Send + Sync + 'static>;
 type SharedSendKeysFn = Arc<dyn Fn(String) + Send + Sync + 'static>;
 type SharedOverlayFn = Arc<dyn Fn(String) -> Result<u32, String> + Send + Sync + 'static>;
 type SharedCaptureFn = Arc<dyn Fn(i32, i32, i32, i32) -> String + Send + Sync + 'static>;

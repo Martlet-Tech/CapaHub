@@ -1,9 +1,7 @@
 pub mod app_context;
-pub mod capability;
 pub mod config;
 pub mod event;
 pub mod eventbus;
-pub mod js_runtime;
 pub mod logger;
 pub mod plugin;
 pub mod plugin_context;
@@ -19,6 +17,6 @@ pub use eventbus::{EventBus, SubscriptionId};
 pub use logger::{Logger, set_file_logging};
 pub use plugin::Plugin;
 pub use plugin_context::PluginContext;
-pub use plugin_manager::{PluginInfo, PluginManager, PluginState};
+pub use plugin_manager::{JsCapabilities, JsPluginFactory, PluginInfo, PluginManager, PluginState};
 pub use render_intent::{DrawCmd, OverlayConfig, OverlayMouseButton, OverlayMouseEvent, RenderIntent, WindowConfig, WindowPosition};
 pub use storage::Storage;

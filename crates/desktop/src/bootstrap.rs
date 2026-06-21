@@ -1,13 +1,14 @@
 use core::config::Config;
 use core::eventbus::EventBus;
 use core::logger::Logger;
-use core::plugin_manager::PluginManager;
+use core::plugin_manager::{JsPluginFactory, PluginManager};
 use core::storage::Storage;
 use crossbeam_channel::unbounded;
 use std::sync::Arc;
 
 use crate::hook_manager::HookManager;
 use crate::icon_loader;
+use crate::js_runtime;
 use crate::log_window::LogWindow;
 use crate::tray::TrayIcon;
 
@@ -44,12 +45,17 @@ impl App {
                 })
         );
 
-        let plugin_manager = Arc::new(PluginManager::new(
+        let mut pm = PluginManager::new(
             eventbus.clone(),
             logger.clone(),
             Arc::new(config.clone()),
             storage.clone(),
-        ));
+        );
+        let js_factory: JsPluginFactory = Arc::new(|js_path, ctx, subs, caps| {
+            js_runtime::create_js_plugin(js_path, ctx, subs, caps)
+        });
+        pm.set_js_factory(js_factory);
+        let plugin_manager = Arc::new(pm);
 
         if let Err(e) = plugin_manager.scan_and_load() {
             logger.error("core", &format!("Plugin load error: {}", e));

@@ -1,12 +1,11 @@
-use crate::capability;
-use crate::event::Event;
-use crate::plugin::Plugin;
-use crate::plugin_context::PluginContext;
-use crate::render_intent::*;
-use crate::storage::Storage;
+use core::event::Event;
+use core::plugin::Plugin;
+use core::plugin_context::PluginContext;
+use core::plugin_manager::JsCapabilities;
+use core::render_intent::*;
 use rquickjs::{context::Context, function::Func, object::Object as JsObj, Runtime};
 use serde::Deserialize;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 #[derive(Deserialize)]
@@ -33,7 +32,7 @@ enum JsDrawCmd {
     Image { x: i32, y: i32, width: u32, height: u32, data: Vec<u8> },
 }
 
-pub struct JsPlugin {
+struct JsPlugin {
     rt: Runtime,
     context: Context,
     ctx: PluginContext,
@@ -44,22 +43,10 @@ fn js_func_name(event_type: &str) -> String {
     format!("on_{}", event_type.replace('.', "_"))
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct JsCapabilities {
-    pub clipboard: bool,
-    pub input: bool,
-    pub overlay: bool,
-    pub screen: bool,
-}
-
 impl JsPlugin {
-    pub fn load(
+    fn load(
         script_path: &Path,
-        logger: Arc<crate::logger::Logger>,
-        eventbus: Arc<crate::eventbus::EventBus>,
-        storage: Arc<Storage>,
-        config_path: std::path::PathBuf,
-        plugin_name: String,
+        plugin_ctx: PluginContext,
         subscribes: &[String],
         caps: JsCapabilities,
     ) -> Result<Self, Box<dyn std::error::Error>> {
@@ -68,14 +55,17 @@ impl JsPlugin {
         let script = std::fs::read_to_string(script_path)?;
 
         let mut subs = Vec::new();
-        let pn_store = plugin_name.clone();
-        let st = storage.clone();
+        let pn_store = plugin_ctx.plugin_name.clone();
+        let st = plugin_ctx.storage.clone();
+
+        let logger = plugin_ctx.logger.clone();
+        let eventbus = plugin_ctx.eventbus.clone();
 
         context.with(|ctx| {
             let global = ctx.globals();
             let js_ctx = JsObj::new(ctx.clone())?;
 
-            let pn = plugin_name.clone();
+            let pn = plugin_ctx.plugin_name.clone();
             let l = logger.clone();
             js_ctx.set("log", Func::new(move |level: String, msg: String| {
                 match level.as_str() {
@@ -123,13 +113,13 @@ impl JsPlugin {
                                     DrawCmd::Image(DrawImage { x, y, width, height, data }),
                             }).collect(),
                             on_hit: Some(Arc::new(move |id| {
-                                eb3.publish(Arc::new(crate::event::DynamicEvent {
+                                eb3.publish(Arc::new(core::event::DynamicEvent {
                                     event_type: "clipboard.item_selected",
                                     repr: format!("{{ id: {} }}", id),
                                 }));
                             })),
                             on_delete: Some(Arc::new(move |id| {
-                                eb4.publish(Arc::new(crate::event::DynamicEvent {
+                                eb4.publish(Arc::new(core::event::DynamicEvent {
                                     event_type: "clipboard.item_deleted",
                                     repr: format!("{{ id: {} }}", id),
                                 }));
@@ -139,7 +129,7 @@ impl JsPlugin {
                     }
                     _ => return,
                 };
-                if let Some(provider) = capability::intent_provider() {
+                if let Some(provider) = crate::capability::intent_provider() {
                     provider(intent);
                 }
             }))?;
@@ -147,7 +137,7 @@ impl JsPlugin {
             js_ctx.set("close_intent", Func::new(move || {}))?;
 
             js_ctx.set("save_file_dialog", Func::new(|content: String, default_name: String| {
-                if let Some(provider) = capability::save_file_provider() {
+                if let Some(provider) = crate::capability::save_file_provider() {
                     provider(content, default_name);
                 }
             }))?;
@@ -155,12 +145,12 @@ impl JsPlugin {
             if caps.clipboard {
                 let clipboard_obj = JsObj::new(ctx.clone())?;
                 clipboard_obj.set("paste", Func::new(|text: String| {
-                    if let Some(provider) = capability::paste_provider() {
+                    if let Some(provider) = crate::capability::paste_provider() {
                         provider(text);
                     }
                 }))?;
                 clipboard_obj.set("readText", Func::new(|| -> Option<String> {
-                    capability::read_text_provider().and_then(|p| p())
+                    crate::capability::read_text_provider().and_then(|p| p())
                 }))?;
                 js_ctx.set("clipboard", clipboard_obj)?;
             }
@@ -168,18 +158,17 @@ impl JsPlugin {
             if caps.input {
                 let input_obj = JsObj::new(ctx.clone())?;
                 input_obj.set("sendKeys", Func::new(|keys: String| {
-                    if let Some(provider) = capability::send_keys_provider() {
+                    if let Some(provider) = crate::capability::send_keys_provider() {
                         provider(keys);
                     }
                 }))?;
                 js_ctx.set("input", input_obj)?;
             }
 
-            // ── ctx.overlay (only if capability declared) ─────
             if caps.overlay {
                 let overlay_obj = JsObj::new(ctx.clone())?;
                 overlay_obj.set("cmd", Func::new(|json: String| -> String {
-                    capability::overlay_provider()
+                    crate::capability::overlay_provider()
                         .and_then(|p| match p(json) {
                             Ok(handle) => Some(handle.to_string()),
                             Err(e) => Some(format!("error:{}", e)),
@@ -189,11 +178,10 @@ impl JsPlugin {
                 js_ctx.set("overlay", overlay_obj)?;
             }
 
-            // ── ctx.screen (only if capability declared) ──────
             if caps.screen {
                 let screen_obj = JsObj::new(ctx.clone())?;
                 screen_obj.set("capture", Func::new(|x: i32, y: i32, w: i32, h: i32| -> String {
-                    capability::capture_provider()
+                    crate::capability::capture_provider()
                         .map(|p| p(x, y, w, h))
                         .unwrap_or_default()
                 }))?;
@@ -230,13 +218,7 @@ impl JsPlugin {
         Ok(JsPlugin {
             rt,
             context,
-            ctx: PluginContext {
-                logger,
-                eventbus,
-                storage,
-                config_path,
-                plugin_name: plugin_name.clone(),
-            },
+            ctx: plugin_ctx,
             subs,
         })
     }
@@ -261,4 +243,14 @@ impl Plugin for JsPlugin {
             ctx.eval::<(), _>(js.as_str())
         });
     }
+}
+
+pub fn create_js_plugin(
+    js_path: PathBuf,
+    ctx: PluginContext,
+    subscribes: Vec<String>,
+    caps: JsCapabilities,
+) -> Result<Box<dyn Plugin>, Box<dyn std::error::Error>> {
+    let plugin = JsPlugin::load(&js_path, ctx, &subscribes, caps)?;
+    Ok(Box::new(plugin))
 }
