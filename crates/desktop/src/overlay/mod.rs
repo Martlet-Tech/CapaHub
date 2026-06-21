@@ -7,7 +7,9 @@ use windows_sys::Win32::Graphics::Gdi::*;
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleA;
 
-extern "system" { fn GetSystemMetrics(nIndex: i32) -> i32; }
+extern "system" {
+    fn GetSystemMetrics(nIndex: i32) -> i32;
+}
 const SM_XVIRTUALSCREEN: i32 = 76;
 const SM_YVIRTUALSCREEN: i32 = 77;
 const SM_CXVIRTUALSCREEN: i32 = 78;
@@ -71,7 +73,7 @@ fn create_overlay(x: i32, y: i32, w: i32, h: i32) -> Result<(Hwnd, Hdc, Hbmp), S
     let hinst = unsafe { GetModuleHandleA(std::ptr::null()) };
     let class: Vec<u16> = "CapaOverlay\0".encode_utf16().collect();
     unsafe { RegisterClassW(&WNDCLASSW { style:0, lpfnWndProc:Some(DefWindowProcW), cbClsExtra:0, cbWndExtra:0, hInstance:hinst, hIcon:std::ptr::null_mut(), hCursor:std::ptr::null_mut(), hbrBackground:std::ptr::null_mut(), lpszMenuName:std::ptr::null_mut(), lpszClassName:class.as_ptr() as *mut u16 }); }
-    let hwnd = unsafe { CreateWindowExW(WS_EX_LAYERED|WS_EX_TRANSPARENT|WS_EX_TOPMOST|WS_EX_TOOLWINDOW, class.as_ptr(), std::ptr::null(), WS_POPUP, x, y, w, h, std::ptr::null_mut(), std::ptr::null_mut(), hinst, std::ptr::null()) };
+    let hwnd = unsafe { CreateWindowExW(WS_EX_LAYERED|WS_EX_TOPMOST|WS_EX_TOOLWINDOW, class.as_ptr(), std::ptr::null(), WS_POPUP, x, y, w, h, std::ptr::null_mut(), std::ptr::null_mut(), hinst, std::ptr::null()) };
     if hwnd.is_null() { return Err("CreateWindowEx failed".into()); }
     unsafe { ShowWindow(hwnd, SW_SHOWNOACTIVATE); }
     let (hdc, bitmap) = unsafe {

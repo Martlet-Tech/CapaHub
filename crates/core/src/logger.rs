@@ -1,4 +1,3 @@
-use chrono::Local;
 use crossbeam_channel::Sender;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -6,6 +5,44 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::collections::VecDeque;
+
+#[link(name = "kernel32")]
+extern "system" {
+    fn GetLocalTime(lpSystemTime: *mut SYSTEMTIME);
+    fn GetTimeZoneInformation(lpTimeZoneInformation: *mut TIME_ZONE_INFORMATION) -> u32;
+}
+
+#[repr(C)]
+struct SYSTEMTIME {
+    wYear: u16, wMonth: u16, wDayOfWeek: u16, wDay: u16,
+    wHour: u16, wMinute: u16, wSecond: u16, wMilliseconds: u16,
+}
+
+#[repr(C)]
+#[allow(non_snake_case)]
+struct TIME_ZONE_INFORMATION {
+    Bias: i32,
+    StandardName: [u16; 32],
+    StandardDate: SYSTEMTIME,
+    StandardBias: i32,
+    DaylightName: [u16; 32],
+    DaylightDate: SYSTEMTIME,
+    DaylightBias: i32,
+}
+
+fn local_time_now() -> (String, u64) {
+    let mut st: SYSTEMTIME = unsafe { std::mem::zeroed() };
+    unsafe { GetLocalTime(&mut st); }
+    let s = format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+        st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+    // Compute local Unix timestamp (ms) = UTC timestamp - Bias*60000
+    let utc_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as i64;
+    let mut tz: TIME_ZONE_INFORMATION = unsafe { std::mem::zeroed() };
+    let bias_ms = unsafe { GetTimeZoneInformation(&mut tz); (tz.Bias as i64) * 60_000 };
+    let local_ms = (utc_ms - bias_ms) as u64; // Bias is negative for positive offsets (UTC+8 = Bias=-480)
+    (s, local_ms)
+}
 
 static FILE_ENABLED: AtomicBool = AtomicBool::new(true);
 
@@ -68,8 +105,7 @@ impl Logger {
     }
 
     pub fn log(&self, level: LogLevel, plugin: &str, message: &str) {
-        let now = Local::now();
-        let timestamp = now.timestamp_millis() as u64;
+        let (now, timestamp) = local_time_now();
         let entry = LogEntry {
             level: level.clone(),
             message: message.to_string(),
@@ -90,7 +126,7 @@ impl Logger {
             let _ = writeln!(
                 file,
                 "[{}] [{}] [{}] {}",
-                now.format("%Y-%m-%d %H:%M:%S"),
+                now,
                 level,
                 plugin,
                 message

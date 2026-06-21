@@ -129,7 +129,6 @@ dependencies = [
 name = "core"
 version = "0.1.0"
 dependencies = [
- "chrono",
  "crossbeam-channel",
  "libloading",
  "plugin_api",
