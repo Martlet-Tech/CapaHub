@@ -501,24 +501,18 @@ impl PluginManager {
         instance: &Arc<Mutex<Box<dyn Plugin>>>,
     ) -> Vec<SubscriptionId> {
         let mut ids = Vec::new();
-        let log = self.logger.clone();
-        let plugin_name = manifest.plugin.name.clone();
         let count = Arc::new(AtomicU64::new(0));
         for event_type in &manifest.events.subscribes {
             let pa = instance.clone();
-            let l = log.clone();
             let et = event_type.clone();
-            let pn = plugin_name.clone();
             let c = count.clone();
             let id = self.eventbus.subscribe(&et, Arc::new(move |event| {
                 if event.event_type() == "mouse.move" {
                     let n = c.fetch_add(1, Ordering::Relaxed);
-                    if n % 100 != 0 {
-                        if let Ok(mut p) = pa.try_lock() { p.on_event(event); }
+                    if n % 3 != 0 {
                         return;
                     }
                 }
-                l.debug("evbus", &format!("dispatch {} to {}", event.event_type(), pn));
                 if let Ok(mut p) = pa.try_lock() {
                     p.on_event(event);
                 }

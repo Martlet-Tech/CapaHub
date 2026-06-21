@@ -117,10 +117,10 @@ unsafe extern "system" fn mouse_proc_callback(ncode: i32, wparam: usize, lparam:
         timestamp,
     };
 
-    let event_bus_ptr = get_eventbus_ptr();
-    if !event_bus_ptr.is_null() {
-        let eventbus = &*(event_bus_ptr as *const EventBus);
-        let arc_event: Arc<dyn Event> = match msg_id {
+        let event_bus_ptr = get_eventbus_ptr();
+        if !event_bus_ptr.is_null() {
+            let eventbus = &*(event_bus_ptr as *const EventBus);
+            let arc_event: Arc<dyn Event> = match msg_id {
             WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN => {
                 Arc::new(MouseDown(mouse_event))
             }
@@ -160,8 +160,6 @@ unsafe extern "system" fn mouse_proc_callback(ncode: i32, wparam: usize, lparam:
         eventbus.publish(arc_event);
     }
 
-    if EAT_MOUSE { return 1; }
-
     CallNextHookEx(std::ptr::null_mut(), ncode, wparam, lparam)
 }
 
@@ -185,8 +183,6 @@ unsafe extern "system" fn keyboard_proc_callback(ncode: i32, wparam: usize, lpar
         eventbus.publish(arc_event);
     }
 
-    if EAT_MOUSE { return 1; }
-
     CallNextHookEx(std::ptr::null_mut(), ncode, wparam, lparam)
 }
 
@@ -195,9 +191,6 @@ static mut LOGGER_PTR: *mut c_void = std::ptr::null_mut();
 static mut MOVE_COUNT: u32 = 0;
 static mut MOVE_START_X: i32 = 0;
 static mut MOVE_START_Y: i32 = 0;
-
-static mut EAT_MOUSE: bool = false;
-pub fn set_eat_mouse(eat: bool) { unsafe { EAT_MOUSE = eat; } }
 
 pub(crate) fn set_eventbus_ptr(ptr: *mut c_void) {
     unsafe { EVENTBUS_PTR = ptr; }
