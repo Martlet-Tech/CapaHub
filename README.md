@@ -1,122 +1,97 @@
 # CapaHub
 
-**CapaHub** 是 Windows 桌面能力平台，不是工具——是承载插件的平台。<br>
-CapaHub is a Windows desktop capability platform — not a tool, but a platform that hosts plugins.
+**CapaHub** 是 Windows 桌面能力平台——一个托盘，一个宿主，无限插件。<br>
+CapaHub is a Windows desktop capability platform — one tray, one host, unlimited plugins.
 
-## 设计初衷 Motivation
-
-电脑自启动的东西越来越多：剪贴板（Dittxxx）、鼠标手势（Strokexxx）、截图（Snipaxxx）、代理（Claxxx）……每个都占一个托盘图标，各自维护一套热键、配置、更新逻辑。<br>
-I had too many autostart utilities — clipboard manager, mouse gestures, screenshot, proxy — each with its own tray icon, hotkeys, config, and update mechanism.
-
-这些工具共享同一套基础设施：全局钩子、热键、配置、日志、数据库、覆盖层。为什么不能统一成一个平台？<br>
-They all share the same infrastructure: global hooks, hotkeys, config, logging, storage, overlay. Why not unify them into one platform?
-
-**CapaHub 的答案：** 一个托盘，一个宿主，无限插件。<br>
-**CapaHub's answer:** One tray, one host, unlimited plugins.
-
-剪贴板、截图、鼠标手势、OCR、AI——都是平台上的**插件**。平台提供基础设施（EventBus、PluginManager、Config、Logger、Input Hook），插件实现业务逻辑。<br>
-Clipboard, screenshot, gesture, OCR, AI — all are **plugins**. The platform provides infrastructure; plugins provide business logic.
+剪贴板、截图、鼠标手势——都是平台上的**插件**。平台提供基础设施（EventBus、PluginManager、Hook、Overlay），插件实现业务逻辑。<br>
+Clipboard, screenshot, gesture — all are **plugins**. The platform provides infrastructure; plugins provide business logic.
 
 ---
 
-## 欢迎参与 Welcome
+## 插件 Plugins
 
-本项目作者完全不懂 Rust，全靠 AI 智能体编程。代码质量、架构设计肯定有很多不成熟的地方，欢迎各路大佬指点、提 issue、甚至直接 PR。
-The author doesn't know Rust at all — every line of code is written by AI agents. The code quality and architecture are far from perfect. Pull requests, issues, and advice are all warmly welcomed.
+| 插件 Plugin | 功能 Description | 触发 Trigger |
+|---|---|---|
+| **Clipboard** | 剪贴板历史记录、搜索、粘贴 Clipboard history, search, paste | `Ctrl+Shift+V` 打开选择器 |
+| **Gesture** | 鼠标手势：画形状触发操作 Mouse gesture recognition | 按住右键画方向/形状 |
+| **Screenshot** | 选区截图 Region screenshot | `F5` 开始选择，拖拽选区域 |
+| **Counter** | 截图计数器 Screenshot counter | `F6` 查看统计 |
 
-有能力的朋友，欢迎帮忙实现核心插件（剪贴板、截图、鼠标手势），或者给平台本身提改进建议。
-If you can help implement the core plugins (clipboard, screenshot, gesture) or improve the platform itself, please jump in.
+插件是 JS 写的（`main.js` + `plugin.toml`），通过 `ctx` 对象调用平台能力（overlay、input、storage、clipboard 等）。<br>
+Plugins are written in JavaScript (`main.js` + `plugin.toml`), calling platform capabilities via the `ctx` object.
 
 ---
 
 ## 架构 Architecture
 
 ```
-CapaHub
-├── Core      事件总线/日志/配置/插件管理/事件类型
-│             EventBus, Logger, Config, PluginManager, types
-├── Plugin API  插件 SDK：Plugin trait、PluginContext、FFI 边界
-│               Plugin trait, PluginContext, FFI boundary
-├── Desktop   Win32 宿主：托盘/日志窗口/钩子管理/插件管理器
-│             Win32 host: tray, log window, hook manager, manager UI
-└── Plugins   运行时加载的 cdylib
-              cdylib .dll loaded at runtime
+plugins/ (JS + plugin.toml)
+    ↓  ctx API
+plugin_api (trait re-exports for JS runtime)
+    ↓
+core (EventBus, Logger, Config, PluginManager, Storage trait)
+    ↓
+desktop (Win32 host: tray, hooks, overlay, webview)
 ```
 
-**依赖方向（单向）**<br>
-**Dependency direction (one-way):**
-```
-plugins/* → plugin_api → core → desktop
-```
+- **核心单向依赖**: `core` 不知道 `plugin_api` 存在，`plugin` 不直接调 Win32。<br>
+  **One-way dependency**: `core` does not know `plugin_api`, plugins cannot call Win32 directly.
+- **插件间通信**: 全部走 EventBus，禁止直接调用。<br>
+  **Inter-plugin communication**: exclusively via EventBus.
+- **插件加载**: 自动扫描 `plugins_dir/*/plugin.toml`，支持 `.js` 和 `.dll` 两种插件。<br>
+  **Plugin loading**: auto-scans for `plugin.toml`, supports both JS and native DLL plugins.
 
-- core 不知道 plugin_api 存在。<br>
-  core does not know plugin_api exists.
-- 插件不能调 Win32 或其他插件。<br>
-  Plugins must not import Win32 or other plugins.
-- 插件间通信全部走 EventBus。<br>
-  All inter-plugin communication goes through EventBus.
+### 核心 Crate
+
+| Crate | 职责 Responsibility |
+|---|---|
+| `core` | EventBus、Logger、Config、PluginManager、`StorageProvider` trait |
+| `plugin_api` | 重新导出 core 的 trait，供插件使用 Re-exports core traits for plugins |
+| `desktop` | Win32 宿主：托盘、钩子管理、overlay、WebView2、clipboard 监听 |
 
 ---
 
 ## 快速开始 Quick Start
 
 ```bash
-# 构建并运行 Build and run
+# 构建全部 Build all
+cargo build --workspace
+
+# 运行 Run
 cargo run -p desktop
 
-# 打包模板插件为 .dap 安装包
-# Package template plugin as installable .dap
-scripts\pack-plugin.bat template
+# 日志窗口：托盘 → Show Log
+# 插件管理器：托盘 → Plugin Manager
+```
 
-# 启动 CapaHub 后：托盘 → 插件管理器 → Install DAP → 选择 .dap 文件
-# After launch: Tray → Plugin Manager → Install DAP → select .dap file
+### 插件目录结构 Plugin Directory Layout
+
+```
+%LOCALAPPDATA%/capahub/plugins/
+├── clipboard/
+│   ├── plugin.toml
+│   ├── main.js
+│   └── index.html
+├── gesture/
+│   ├── plugin.toml
+│   ├── main.js
+│   └── index.html
+└── screenshot/
+    ├── plugin.toml
+    ├── main.js
+    └── index.html
 ```
 
 ---
 
-## 插件生命周期 Plugin Lifecycle
+## 创建 JS 插件 Writing a JS Plugin
 
-```
-Loaded → Enabled ↔ Disabled → Unloaded
-```
-
-| 状态 State | 含义 Meaning |
-|------------|-------------|
-| `Loaded` | DLL 已加载，on_load 已调用，**未**订阅事件。<br>DLL loaded, on_load called, NOT subscribed. |
-| `Enabled` | on_enable 已调用，事件订阅中。<br>on_enable called, subscribed to events. |
-| `Disabled` | 取消事件订阅，on_disable 已调用，DLL 不卸载。<br>Unsubscribed, on_disable called, DLL stays loaded. |
-| `Unloaded` | on_unload 已调用，DLL 释放。<br>on_unload called, DLL freed. |
-
-通过**插件管理器窗口**（托盘 → Plugin Manager）或代码控制状态。<br>
-Manage states via **Plugin Manager** window (Tray → Plugin Manager) or programmatically.
-
----
-
-## 创建插件 Creating a Plugin
-
-### 项目结构 Project Structure
+### 最小结构 Minimal Structure
 
 ```
 my-plugin/
-├── Cargo.toml
 ├── plugin.toml
-└── src/
-    └── lib.rs
-```
-
-### Cargo.toml
-
-```toml
-[package]
-name = "my-plugin"
-version = "0.1.0"
-edition = "2021"
-
-[lib]
-crate-type = ["cdylib"]
-
-[dependencies]
-plugin_api = { path = "../../crates/plugin_api" }
+└── main.js
 ```
 
 ### plugin.toml
@@ -128,106 +103,92 @@ version = "0.1.0"
 description = "Does something useful"
 
 [hooks]
-mouse = true
+mouse = true           # 是否需要鼠标钩子
+keyboard = false       # 是否需要键盘钩子
+
+[capabilities]
+clipboard = false      # 是否需要剪贴板能力
+input = false          # 是否需要模拟输入 (sendKeys)
+overlay = false        # 是否需要覆盖层
+screen = false         # 是否需要屏幕截图
 
 [events]
 subscribes = ["mouse.down", "mouse.move", "mouse.up"]
 publishes = []
 ```
 
-### 插件代码 Plugin Code
+### main.js
 
-```rust
-use plugin_api::{Event, MouseButton, Plugin, PluginContext, PluginContextFFI};
-use std::ffi::c_void;
-use std::sync::Arc;
+```javascript
+ctx.log("info", "my-plugin started");
 
-struct MyPlugin { ctx: PluginContext }
-
-impl Plugin for MyPlugin {
-    fn on_load(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        self.ctx.logger.info("my-plugin", "loaded");
-        Ok(())
-    }
-    fn on_enable(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        self.ctx.logger.info("my-plugin", "enabled");
-        Ok(())
-    }
-    fn on_disable(&mut self) {
-        self.ctx.logger.info("my-plugin", "disabled");
-    }
-    fn on_unload(&mut self) {
-        self.ctx.logger.info("my-plugin", "unloaded");
-    }
-    fn on_event(&mut self, event: Arc<dyn Event>) {
-        if let Some(me) = event.mouse_event() {
-            self.ctx.logger.debug("my-plugin",
-                &format!("mouse at {},{}", me.x, me.y));
-        }
-    }
+function on_mouse_down(e) {
+    ctx.log("debug", "mouse down: " + e.button + " at " + e.x + "," + e.y);
 }
 
-#[no_mangle]
-pub extern "C" fn plugin_create(ctx_ptr: *const PluginContextFFI) -> *mut c_void {
-    let ctx = unsafe { (*ctx_ptr).to_plugin_context() };
-    Box::into_raw(Box::new(Box::new(MyPlugin { ctx }) as Box<dyn Plugin>)) as *mut c_void
+function on_mouse_move(e) {
+    // only called if mouse hook is active
 }
 
-#[no_mangle]
-pub extern "C" fn plugin_destroy(ptr: *mut c_void) {
-    if !ptr.is_null() {
-        unsafe { drop(Box::from_raw(*Box::from_raw(ptr as *mut *mut dyn Plugin))); }
-    }
+function on_mouse_up(e) {
+    ctx.log("debug", "mouse up");
 }
 ```
 
-### 打包为 .dap  Package as .dap
+### ctx API
 
-```
-my-plugin-0.1.0.dap
-├── plugin.toml
-├── my_plugin.dll
-├── index.html          可选，托盘菜单点插件名时用浏览器打开
-│                       optional, opened from tray menu
-└── assets/
-    └── icon.png        可选 optional
-```
+| 方法 API | 说明 Description |
+|---|---|
+| `ctx.log(level, msg)` | 日志：debug/info/warn/error |
+| `ctx.storage.get(key)` | 读取持久化键值 Read persisted KV |
+| `ctx.storage.set(key, val)` | 写入持久化键值 Write persisted KV |
+| `ctx.commit_intent(type, json)` | 打开一个窗口（如选择器）Open a window (e.g. picker) |
+| `ctx.close_intent()` | 关闭当前窗口 Close current window |
+| `ctx.clipboard.paste(text)` | 模拟粘贴 Simulate paste |
+| `ctx.clipboard.readText()` | 读取剪贴板文本 Read clipboard text |
+| `ctx.input.sendKeys(str)` | 模拟按键 Simulate keystrokes |
+| `ctx.overlay.cmd(json)` | 覆盖层命令（创建/绘制/销毁）Overlay commands |
+| `ctx.screen.capture(x,y,w,h)` | 截取屏幕区域 Capture screen region |
 
-构建后 `cargo build --release`，用 zip 打包后改后缀为 `.dap`。<br>
-Build with `cargo build --release`, zip with `.dap` extension.
+事件处理函数按 `on_<event_type>()` 命名，例如订阅 `"mouse.down"` 则实现 `on_mouse_down(e)`。<br>
+Event handlers are named `on_<event_type>()`, e.g. subscribe `"mouse.down"` → implement `on_mouse_down(e)`.
 
 ---
 
-## 事件表 Events
+## 事件 Events
 
-| 事件 Event | 负载 Data | 来源 Source |
-|-----------|-----------|------------|
-| `mouse.down` | `MouseEvent` | 鼠标钩子 HookManager |
-| `mouse.move` | `MouseEvent` | 鼠标钩子 HookManager |
-| `mouse.up` | `MouseEvent` | 鼠标钩子 HookManager |
-| `app.started` | — | 启动 Bootstrap |
-| `app.shutdown` | — | 关闭 Shutdown |
-| `plugin.loaded` | `PluginLoaded { name }` | 加载 Load |
-| `plugin.enabled` | `PluginEnabled { name, needs_hook }` | 启用 Enable |
-| `plugin.disabled` | `PluginDisabled { name }` | 禁用 Disable |
+| 事件 Event | 负载 Payload | 来源 Source |
+|---|---|---|
+| `mouse.down` | `{ button, x, y, timestamp }` | 鼠标钩子 |
+| `mouse.move` | `{ button, x, y, timestamp }` | 鼠标钩子（3:1 节流） |
+| `mouse.up` | `{ button, x, y, timestamp }` | 鼠标钩子 |
+| `keyboard.down` | `{ vk, timestamp }` | 键盘钩子 |
+| `keyboard.up` | `{ vk, timestamp }` | 键盘钩子 |
+| `app.started` | — | 启动时 |
+| `app.shutdown` | — | 退出时 |
+| `plugin.loaded` | `{ name }` | 插件加载时 |
+| `plugin.enabled` | `{ name, needs_hook }` | 插件启用时 |
+| `plugin.disabled` | `{ name }` | 插件禁用时 |
+| `plugin.activate` | `{ name }` | 激活某插件 |
+| `plugin.action` | `{ plugin, action, payload }` | 插件间动作调用 |
+| `clipboard.changed` | 文本 | 剪贴板内容变化 |
+| `screenshot.capture` | — | 触发截图 |
+| `hotkey.show_clipboard` | — | 显示剪贴板选择器 |
+| `hotkey.f6` | — | F6 热键 |
+| `render.intent` | `RenderIntent` | 窗口/覆盖层渲染请求 |
 
 ---
 
 ## 开发命令 Development
 
 ```bash
-# 构建全部 Build all
-cargo build --workspace
-
-# 运行 Run
-cargo run -p desktop
-
-# 构建并部署模板插件 Build & deploy template
-scripts\deploy-plugin.bat template
-
-# 打包 .dap 安装包 Package .dap installer
-scripts\pack-plugin.bat template
-
-# 启动脚本（自动构建 desktop）Run script
-scripts\run.bat
+cargo build --workspace        # 构建全部 Build all
+cargo run -p desktop            # 运行 Run
+cargo build --release -p core   # 构建 release
 ```
+
+---
+
+## 协议 License
+
+MIT
